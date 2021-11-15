@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import cv2
 import tensorflow as tf
-from keras import models, layers, datasets
+from keras import models, layers
 
 
 def get_data(n=None):
@@ -22,13 +22,15 @@ def get_data(n=None):
     """
     start = time.time()
     if n is None:
-        images = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
+        paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
     else:
-        images = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12*n:12]]
-    return images, time.time()-start
+        paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12 * n:12]]
+
+    y = get_label('test.xlsx')
+    return paths, y, time.time() - start
+
 
 def get_label(data):
-
     """
     method to get the label of the data.
     :param data: data to get label of.
@@ -36,17 +38,16 @@ def get_label(data):
     """
 
     file = pd.read_excel(data)
-    file = file.values[:,:12]
+    file = file.values[:, :12]
     list = []
     for i in range(len(file)):
         for j in range(len(file[i])):
             if file[i][j] == 'nan':
                 file[i][j] = 0
-            
+
             list.append(file[i][j])
 
     return np.array(list)
-    
 
 
 def preprocess(data):
@@ -54,8 +55,8 @@ def preprocess(data):
     preprocesses our data so that it is more easily understood by our algorithm.
     :return: preprocessed data.
     """
-    pass
-    
+    start = time.time()
+    return data, time.time() - start
 
 
 def data_augment(data):
@@ -64,7 +65,8 @@ def data_augment(data):
     :param data: data to augment.
     :return: augmented form of the data.
     """
-    pass
+    start = time.time()
+    return data, time.time() - start
 
 
 def create_cnn():
@@ -72,6 +74,7 @@ def create_cnn():
     creates our algorithm to learn from our dataset.
     :return: the model object.
     """
+    start = time.time()
     model = models.Sequential()
     model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=(180, 180, 1)))
     model.add(layers.AveragePooling2D((2, 2)))
@@ -85,35 +88,47 @@ def create_cnn():
     model.compile(optimizer='adam',
                   loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
                   metrics=['accuracy'])
-    return model
+    return model, time.time() - start
 
 
-def pipeline():
+def pipeline(paths, y):
     """
-    This is our data 'pipeline' it ensures a consistent flow and modulation of the data.
-    :return: None.
+    This is our data 'pipeline' it ensures a consistent flow and modulation of the data. implements lazy image loading.
+    :return:
     """
-    pass
+    start = time.time()
+    X = [[cv2.imread(p)[:, :, 0] for p in path] for path in paths]
+    X, ttt = preprocess(X)
+    X_aug, tta = data_augment(X)
+    y_aug = [_ for _ in y]
+    return X, y, X_aug, y_aug, ttt, tta, time.time() - start
 
 
 def main():
-    paths, ttr = get_data(50)
-    print(paths[0])
-    print("Getting data took {} seconds!".format(ttr))
+    # Get chunk of data
+    paths, y, ttr = get_data(50)
+    print("Getting data paths took {} seconds!".format(ttr))
 
-    paths = ["data/FingerJoints/9000099_dip5.png", "data/FingerJoints/9000099_dip4.png", "data/FingerJoints/9000099_dip3.png", "data/FingerJoints/9000099_dip2.png"]
-    X = []
-    for p in paths:
-        X.append(cv2.imread(p)[:, :, 0])
-    X = np.array(X)
-    y = np.ones(X.shape[0])
+    # Create our model
+    model, ttc = create_cnn()
+    print("Creating model took {} seconds!".format(ttc))
 
-    print(X.shape)
-    print(y.shape)
+    # Send data to the pipeline
+    X, y, X_aug, y_aug, ttt, tta, ttp = pipeline(paths, y)
+    print("Data transformation took {} seconds!".format(ttt))
+    print("Data augmentation took {} seconds!".format(tta))
+    print("Total data pipeline took {} seconds!".format(ttp))
 
-    model = create_cnn()
-    model.fit(X, y)
-    pass
+    # Testing Data Shape
+    print("X len:", len(X))
+    print("X[0] len:", len(X[0]))
+    print("X[0][0] len:", len(X[0][0]))
+    print("x[0][0]:", X[0][0])
+    print("X[0][0][0] len:", len(X[0][0][0]))
+    print("X[0][0][0][0]:", X[0][0][0][0])
+
+    # Train model on training data
+    # model.fit(X[0][0], y)
 
 
 if __name__ == "__main__":
