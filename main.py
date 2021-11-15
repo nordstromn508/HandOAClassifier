@@ -40,7 +40,7 @@ def get_label(data):
             if file[i][j] == 'nan':
                 file[i][j] = 0
             
-        list.append(file[i][j])
+            list.append(file[i][j])
 
     return np.array(list)
     
