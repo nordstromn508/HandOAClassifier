@@ -36,7 +36,7 @@ def get_label(data):
     file = file.values[:,:12]
     list = []
     for i in range(len(file)):
-        for j in in range(len(file[i])):
+        for j in range(len(file[i])):
             if file[i][j] == 'nan':
                 file[i][j] = 0
             
