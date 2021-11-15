@@ -4,14 +4,23 @@ main.py
     Main thread of execution
 
 """
+import glob
+import os
+import time
 
 
-def get_data():
+def get_data(n=None):
     """
     method to import data and get it all nice and ready for learning.
+    :param n: number of image sets to obtain
     :return: our dataset.
     """
-    pass
+    start = time.time()
+    if n is None:
+        images = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
+    else:
+        images = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12*n:12]]
+    return images, time.time()-start
 
 
 def preprocess(data):
@@ -48,6 +57,9 @@ def pipeline():
 
 
 def main():
+    paths, ttr = get_data(50)
+    print(paths[0])
+    print("Getting data took {} seconds!".format(ttr))
     pass
 
 
