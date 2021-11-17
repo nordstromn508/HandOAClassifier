@@ -25,7 +25,10 @@ def get_data(n=None):
         paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
     else:
         paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12 * n:12]]
-
+    
+    file = pd.read_excel('test.xlsx')
+    file = file.set_index('id')
+    
     label = []
     for i in range(len(paths)):
         id = paths[i][0][18:25]
