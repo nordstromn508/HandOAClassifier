@@ -26,28 +26,16 @@ def get_data(n=None):
     else:
         paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12 * n:12]]
 
-    y = get_label('test.xlsx')
-    return paths, y, time.time() - start
+    label = []
+    for i in range(len(paths)):
+        id = paths[i][0][18:25]
+        id = int(id)
+        for j in range(len(paths[i])):
+            joint = paths[i][j][26:30]
+            label.append((file.at[id, joint]))
 
-
-def get_label(data):
-    """
-    method to get the label of the data.
-    :param data: data to get label of.
-    :return: label of the data.
-    """
-
-    file = pd.read_excel(data)
-    file = file.values[:, :12]
-    list = []
-    for i in range(len(file)):
-        for j in range(len(file[i])):
-            if file[i][j] == 'nan':
-                file[i][j] = 0
-
-            list.append(file[i][j])
-
-    return np.array(list)
+    label = np.array(label, dtype=object)
+    return paths, label, time.time() - start
 
 
 def preprocess(data):
