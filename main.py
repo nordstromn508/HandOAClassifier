@@ -14,6 +14,24 @@ import tensorflow as tf
 from keras import models, layers
 
 
+def exclude_image(paths, verbose=False):
+    """
+    method to exclude images from the dataset whose paths are passed
+    :param verbose: option to print which groups of files are excluded
+    :param paths: path of file to exclude
+    :return: tuple(number of files excluded, time to exclude)
+    """
+    start = time.time()
+    n = 0
+    for path in paths:
+        if verbose:
+            print("Excluding {} ({} images)".format(path[0].split('\\')[-1][:7], len(path)))
+        for p in path:
+            n += 1
+            os.replace(p.replace('\\', '/'), "data/Excluded/" + p.split('\\')[-1])
+    return n, time.time() - start
+
+
 def get_data(n=None):
     """
     method to import data and get it all nice and ready for learning.
@@ -88,7 +106,7 @@ def pipeline(paths, y):
     :return:
     """
     start = time.time()
-    X = [[cv2.imread(p)[:, :, 0] for p in path] for path in paths]
+    X = np.array([[cv2.imread(p)[:, :, 0] for p in path] for path in paths])
     X, ttt = preprocess(X)
     X_aug, tta = data_augment(X)
     y_aug = [_ for _ in y]
@@ -96,13 +114,18 @@ def pipeline(paths, y):
 
 
 def main():
-    # Get chunk of data
-    paths, y, ttr = get_data(50)
-    print("Getting data paths took {} seconds!".format(ttr))
+    n = 1
+    while n:
+        # Get chunk of data
+        paths, y, ttr = get_data(50)
+        print("Getting data paths took {} seconds!".format(ttr))
 
-    # Create our model
-    model, ttc = create_cnn()
-    print("Creating model took {} seconds!".format(ttc))
+        # Data exclusion
+        missing = [p for p in paths if len(p) != 12]
+        if len(missing) > 0:
+            print("< < < DATA IMPURITY FOUND: EXCLUDING & RETRIEVING... > > >")
+        n, tte = exclude_image(missing, verbose=True)
+        print("Excluded {} files in {} seconds!".format(n, tte))
 
     # Send data to the pipeline
     X, y, X_aug, y_aug, ttt, tta, ttp = pipeline(paths, y)
@@ -110,16 +133,16 @@ def main():
     print("Data augmentation took {} seconds!".format(tta))
     print("Total data pipeline took {} seconds!".format(ttp))
 
+    # Create our model
+    model, ttc = create_cnn()
+    print("Creating model took {} seconds!".format(ttc))
+
     # Testing Data Shape
-    print("X len:", len(X))
-    print("X[0] len:", len(X[0]))
-    print("X[0][0] len:", len(X[0][0]))
-    print("x[0][0]:", X[0][0])
-    print("X[0][0][0] len:", len(X[0][0][0]))
-    print("X[0][0][0][0]:", X[0][0][0][0])
+    print("X shape: {}".format(X.shape))
+    print("y shape: {}".format(y.shape))
 
     # Train model on training data
-    # model.fit(X[0][0], y)
+    # model.fit(X, y)
 
 
 if __name__ == "__main__":
