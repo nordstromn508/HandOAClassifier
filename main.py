@@ -153,19 +153,19 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
 
         # fit to training data
         start_train = time.time()
-        model.fit(X[training], y[training], callbacks=[callback])
+        model.fit(X[training], y[training], epochs=50, callbacks=[callback])
         tt_train = time.time() - start_train
         if verbose:
             print("Fold {} Finished Training On {} Data-points In {} Seconds!".format(fold, sum(training),
-                                                                                      round(tt_train, 4)))
+                                                                                      round(tt_train, 2)))
 
         for aug in X_aug:
             start_train = time.time()
-            model.fit(aug[training], y[training], callbacks=[callback])
+            model.fit(aug[training], y[training], epochs=50, callbacks=[callback])
             tt_train = time.time() - start_train
             if verbose:
                 print("Fold {} Finished Training On {} Augmented Data-points In {} Seconds!".format(fold, sum(training),
-                                                                                          round(tt_train, 4)))
+                                                                                          round(tt_train, 2)))
 
         # test on remaining data
         start_test = time.time()
@@ -174,9 +174,9 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
         av_accuracy += (acc/n)
         tt_test = time.time() - start_test
         if verbose:
-            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold, sum(np.logical_not(training)), round(tt_test, 4), round(acc, 4)))
+            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold, sum(np.logical_not(training)), round(tt_test, 4), round(acc, 2)))
 
-    return av_accuracy, time.time()-start
+    return round(av_accuracy, 2), time.time()-start
 
 
 def main():
@@ -211,7 +211,7 @@ def main():
     print("First 5 labels: {}".format(y[:5]))
 
     # Train model on training data
-    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180), y.reshape(600, 1), X_aug, verbose=True)
+    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(600, 1), X_aug, verbose=True)
     print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
 
 
