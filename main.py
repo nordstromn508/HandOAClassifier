@@ -77,7 +77,7 @@ def data_augment(data):
     :return: augmented form of the data.
     """
     start = time.time()
-    return data, time.time() - start
+    return [], time.time() - start
 
 
 def cnn_VGG16():
@@ -139,21 +139,42 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     :return: accuracy result from cross validation
     """
     start = time.time()
+    model.save('fresh_model')
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
-
     step = y.shape[0]//n
     av_accuracy = 0
     for fold in range(n):
+        # load new model starting from scratch
+        model = models.load_model('fresh_model')
+
         # define training set
-        training = np.zeros((X.shape[0]), dtype=bool)
-        training[fold*step:step*(fold+1)] = 1
+        training = np.ones((X.shape[0]), dtype=bool)
+        training[fold*step:step*(fold+1)] = 0
 
         # fit to training data
+        start_train = time.time()
         model.fit(X[training], y[training], callbacks=[callback])
+        tt_train = time.time() - start_train
+        if verbose:
+            print("Fold {} Finished Training On {} Data-points In {} Seconds!".format(fold, sum(training),
+                                                                                      round(tt_train, 4)))
+
+        for aug in X_aug:
+            start_train = time.time()
+            model.fit(aug[training], y[training], callbacks=[callback])
+            tt_train = time.time() - start_train
+            if verbose:
+                print("Fold {} Finished Training On {} Augmented Data-points In {} Seconds!".format(fold, sum(training),
+                                                                                          round(tt_train, 4)))
 
         # test on remaining data
+        start_test = time.time()
         _, acc = model.evaluate(X[np.logical_not(training)], y[np.logical_not(training)])
+        acc *= 100
         av_accuracy += (acc/n)
+        tt_test = time.time() - start_test
+        if verbose:
+            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold, sum(np.logical_not(training)), round(tt_test, 4), round(acc, 4)))
 
     return av_accuracy, time.time()-start
 
@@ -162,17 +183,17 @@ def main():
     n = 1
     while n:
         # Get chunk of data
-        start = time.time()
-
         paths, y, ttr = get_data(50)
         print("Getting Data Paths Took {} Seconds!".format(round(ttr, 4)))
 
         # Data exclusion
+        start = time.time()
         missing = [p for p in paths if len(p) != 12]
         if len(missing) > 0:
             print("< < < DATA IMPURITY FOUND: EXCLUDING & RETRIEVING... > > >")
         n, tte = exclude_image(missing, verbose=True)
         print("Excluded {} Files In {} Seconds!".format(n, round(tte, 4)))
+
     ttc = time.time()-start
     print("Total Data Cleaning Took {} Seconds!".format(round(ttc, 4)))
 
@@ -186,18 +207,11 @@ def main():
     model, ttc = cnn_VGG16()
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-    # Testing Data Shape
-    print("X shape: {}".format(X.shape))
-    print("y shape: {}".format(y.shape))
-
-    # check data type
-    print("X data type is {}".format(X.dtype))
-    print("y data type is {}".format(y.dtype))
-    print("X[0] data type is {}".format(X[0].dtype))
-    print("y[0] data type is {}".format(y[0].dtype))
+    print("First 5 images: {}".format(paths[0][:5]))
+    print("First 5 labels: {}".format(y[:5]))
 
     # Train model on training data
-    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180), y.reshape(600, 1))
+    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180), y.reshape(600, 1), X_aug, verbose=True)
     print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
 
 
