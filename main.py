@@ -81,24 +81,52 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def cnn_inception(layer_in, f1, f2_in, f2_out, f3_in, f3_out, f4_out):
-    # 1x1 conv
-    conv1 = layers.Conv2D(f1, (1,1), padding='same', activation='relu')(layer_in)
-    # 3x3 conv
-    conv3 = layers.Conv2D(f2_in, (1,1), padding='same', activation='relu')(layer_in)
-    conv3 = layers.Conv2D(f2_out, (3,3), padding='same', activation='relu')(conv3)
-    # 5x5 conv
-    conv5 = layers.Conv2D(f3_in, (1,1), padding='same', activation='relu')(layer_in)
-    conv5 = layers.Conv2D(f3_out, (5,5), padding='same', activation='relu')(conv5)
-    # 3x3 max pooling
-    pool = layers.MaxPooling2D((3,3), strides=(1,1), padding='same')(layer_in)
-    pool = layers.Conv2D(f4_out, (1,1), padding='same', activation='relu')(pool)
-    # concatenate filters, assumes filters/channels last
-    layer_out = layers.merge.concatenate([conv1, conv3, conv5, pool], axis=-1)
-    return layer_out
+def inception_v3(input_shape, output_shape, verbose=False):
+    """
+    :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/inceptionV3
+    Creates an InceptionV3 model
+    :param input_shape: shape of input layer
+    :param output_shape: shape of output layer
+    :param verbose: option to print model summary to console
+    :return: compiled and ready-to-train model
+    """
+
+    start = time.time()
+    model = keras.applications.inception_v3.InceptionV3(include_top=True,
+                                                        weights=None,
+                                                        input_tensor=None,
+                                                        input_shape=input_shape,
+                                                        pooling=None,
+                                                        classes=output_shape)
+    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    if verbose:
+        model.summary()
+    return model, time.time() - start
 
 
-def efficient_net(input_shape, output_shape):
+def dense_net201(input_shape, output_shape, verbose=False):
+    """
+    :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
+    Creates a DenseNet201 model
+    :param input_shape: shape of input layer
+    :param output_shape: shape of output layer
+    :param verbose: option to print model summary to console
+    :return: compiled and ready-to-train model
+    """
+    start = time.time()
+    model = keras.applications.densenet.DenseNet201(include_top=True,
+                                                    weights=None,
+                                                    input_tensor=None,
+                                                    input_shape=input_shape,
+                                                    pooling=None,
+                                                    classes=output_shape)
+    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    if verbose:
+        model.summary()
+    return model, time.time() - start
+
+
+def efficient_net(input_shape, output_shape, verbose=False):
     """
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
     Creates a efficientNet model, loads trained weights as a starting point
@@ -258,17 +286,8 @@ def main():
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    # model, ttc = efficient_net((180, 180, 1), 1)
-    # print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
-    # Create our model
-    ipt = layers.Input(shape=(180, 180, 1))
-    layer = cnn_inception(ipt, 64, 96, 128, 16, 32, 32)
-    layer = cnn_inception(layer, 128, 128, 192, 32, 96, 64)
-    x = layers.Flatten()(layer)
-    x = layers.Dropout(0.2)(x)
-    x = layers.Dense(1, activation='softmax')(x)
-    model = models.Model(inputs=ipt, outputs=x)
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    model, ttc = inception_v3((180, 180, 1), 1, verbose=True)
+    print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Train model on training data
     accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(y.shape[0], 1), X_aug, verbose=True)
