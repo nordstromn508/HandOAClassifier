@@ -7,8 +7,6 @@ main.py
 import glob
 import os
 import time
-
-import keras.applications.densenet
 import pandas as pd
 import numpy as np
 import cv2
@@ -83,58 +81,53 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def dense_net201(input_shape, output_shape, verbose=False):
-    """
-    :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
-    Creates a DenseNet201 model
-    :param input_shape: shape of input layer
-    :param output_shape: shape of output layer
-    :param verbose: option to print model summary to console
-    :return: compiled and ready-to-train model
-    """
-    start = time.time()
-    model = keras.applications.densenet.DenseNet201(include_top=True,
-                                                    weights=None,
-                                                    input_tensor=None,
-                                                    input_shape=input_shape,
-                                                    pooling=None,
-                                                    classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
-    if verbose:
-        model.summary()
-    return model, time.time() - start
+def cnn_inception(layer_in, f1, f2_in, f2_out, f3_in, f3_out, f4_out):
+    # 1x1 conv
+    conv1 = layers.Conv2D(f1, (1,1), padding='same', activation='relu')(layer_in)
+    # 3x3 conv
+    conv3 = layers.Conv2D(f2_in, (1,1), padding='same', activation='relu')(layer_in)
+    conv3 = layers.Conv2D(f2_out, (3,3), padding='same', activation='relu')(conv3)
+    # 5x5 conv
+    conv5 = layers.Conv2D(f3_in, (1,1), padding='same', activation='relu')(layer_in)
+    conv5 = layers.Conv2D(f3_out, (5,5), padding='same', activation='relu')(conv5)
+    # 3x3 max pooling
+    pool = layers.MaxPooling2D((3,3), strides=(1,1), padding='same')(layer_in)
+    pool = layers.Conv2D(f4_out, (1,1), padding='same', activation='relu')(pool)
+    # concatenate filters, assumes filters/channels last
+    layer_out = layers.merge.concatenate([conv1, conv3, conv5, pool], axis=-1)
+    return layer_out
 
 
-def efficient_net(input_shape, output_shape, verbose=False):
+def efficient_net(input_shape, output_shape):
     """
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
     Creates a efficientNet model, loads trained weights as a starting point
     :param input_shape: shape of input
     :param output_shape: shape of output
-    :param verbose: option to print model summary to console
     :return: compiled model
     """
     start = time.time()
-    conv_base = EfficientNetB6(weights="imagenet", include_top=False, input_shape=input_shape)
+    conv_base = EfficientNetB6(include_top=False, input_shape=input_shape)
     model = models.Sequential()
     model.add(conv_base)
     model.add(layers.GlobalMaxPooling2D(name="gap"))
     model.add(layers.Dropout(dropout_rate=0.2, name="dropout_out"))
     model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
     conv_base.trainable = False
-    model.compile(loss="categorical_crossentropy", optimizer=optimizers.RMSprop(lr=2e-5), metrics=["accuracy"], )
-    if verbose:
-        model.summary()
+    model.compile(
+        loss="categorical_crossentropy",
+        optimizer=optimizers.RMSprop(lr=2e-5),
+        metrics=["accuracy"],
+    )
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape, verbose=False):
+def cnn_vgg16(input_shape, output_shape):
     """
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
     :param input_shape: shape of input for model
     :param output_shape: shape of output
-    :param verbose: option to print model summary to console
     :return: the model object.
     """
     start = time.time()
@@ -164,8 +157,6 @@ def cnn_vgg16(input_shape, output_shape, verbose=False):
     model.add(layers.Dense(units=output_shape, activation="softmax"))
 
     model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
-    if verbose:
-        model.summary()
     return model, time.time() - start
 
 
@@ -196,8 +187,15 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     """
     start = time.time()
     model.save('fresh_model')
+
+    # randomly shuffle data (random_state=42)
+    shuffle = np.random.RandomState(seed=42).permutation(len(y))
+    X = np.array([X[i] for i in shuffle])
+    # X_aug = np.array([X_aug[i] for i in shuffle]) comment this out for now because we dont have any data augmentation implemented
+    y = np.array([y[i] for i in shuffle])
+
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
-    step = y.shape[0] // n
+    step = y.shape[0]//n
     av_accuracy = 0
     for fold in range(n):
         # load new model starting from scratch
@@ -205,7 +203,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
 
         # define training set
         training = np.ones((X.shape[0]), dtype=bool)
-        training[fold * step:step * (fold + 1)] = 0
+        training[fold*step:step*(fold+1)] = 0
 
         # fit to training data
         start_train = time.time()
@@ -221,29 +219,25 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
             tt_train = time.time() - start_train
             if verbose:
                 print("Fold {} Finished Training On {} Augmented Data-points In {} Seconds!".format(fold, sum(training),
-                                                                                                    round(tt_train, 2)))
+                                                                                          round(tt_train, 2)))
 
         # test on remaining data
         start_test = time.time()
         _, acc = model.evaluate(X[np.logical_not(training)], y[np.logical_not(training)])
         acc *= 100
-        av_accuracy += (acc / n)
+        av_accuracy += (acc/n)
         tt_test = time.time() - start_test
         if verbose:
-            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold,
-                                                                                                       sum(np.logical_not(
-                                                                                                           training)),
-                                                                                                       round(tt_test,
-                                                                                                             4),
-                                                                                                       round(acc, 2)))
-    return round(av_accuracy, 2), time.time() - start
+            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold, sum(np.logical_not(training)), round(tt_test, 4), round(acc, 2)))
+
+    return round(av_accuracy, 2), time.time()-start
 
 
 def main():
     n = 1
     while n:
         # Get chunk of data
-        paths, y, ttr = get_data(50)
+        paths, y, ttr = get_data(10)
         print("Getting Data Paths Took {} Seconds!".format(round(ttr, 4)))
 
         # Data exclusion
@@ -254,7 +248,7 @@ def main():
         n, tte = exclude_image(missing, verbose=True)
         print("Excluded {} Files In {} Seconds!".format(n, round(tte, 4)))
 
-    ttc = time.time() - start
+    ttc = time.time()-start
     print("Total Data Cleaning Took {} Seconds!".format(round(ttc, 4)))
 
     # Send data to the pipeline
@@ -264,11 +258,20 @@ def main():
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = dense_net201((180, 180, 1), 1, verbose=True)
-    print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
+    # model, ttc = efficient_net((180, 180, 1), 1)
+    # print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
+    # Create our model
+    ipt = layers.Input(shape=(180, 180, 1))
+    layer = cnn_inception(ipt, 64, 96, 128, 16, 32, 32)
+    layer = cnn_inception(layer, 128, 128, 192, 32, 96, 64)
+    x = layers.Flatten()(layer)
+    x = layers.Dropout(0.2)(x)
+    x = layers.Dense(1, activation='softmax')(x)
+    model = models.Model(inputs=ipt, outputs=x)
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
     # Train model on training data
-    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(600, 1), X_aug, verbose=True)
+    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(y.shape[0], 1), X_aug, verbose=True)
     print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
 
 
