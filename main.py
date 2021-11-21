@@ -7,6 +7,8 @@ main.py
 import glob
 import os
 import time
+
+import keras.applications.densenet
 import pandas as pd
 import numpy as np
 import cv2
@@ -44,10 +46,10 @@ def get_data(n=None):
         paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
     else:
         paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12 * n:12]]
-    
+
     file = pd.read_excel('test.xlsx')
     file = file.set_index('id')
-    
+
     label = []
     for i in range(len(paths)):
         id = paths[i][0][18:25]
@@ -81,12 +83,35 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def efficient_net(input_shape, output_shape):
+def dense_net201(input_shape, output_shape, verbose=False):
+    """
+    :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
+    Creates a DenseNet201 model
+    :param input_shape: shape of input layer
+    :param output_shape: shape of output layer
+    :param verbose: option to print model summary to console
+    :return: compiled and ready-to-train model
+    """
+    start = time.time()
+    model = keras.applications.densenet.DenseNet201(include_top=True,
+                                                    weights=None,
+                                                    input_tensor=None,
+                                                    input_shape=input_shape,
+                                                    pooling=None,
+                                                    classes=output_shape)
+    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    if verbose:
+        model.summary()
+    return model, time.time() - start
+
+
+def efficient_net(input_shape, output_shape, verbose=False):
     """
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
     Creates a efficientNet model, loads trained weights as a starting point
     :param input_shape: shape of input
     :param output_shape: shape of output
+    :param verbose: option to print model summary to console
     :return: compiled model
     """
     start = time.time()
@@ -97,20 +122,19 @@ def efficient_net(input_shape, output_shape):
     model.add(layers.Dropout(dropout_rate=0.2, name="dropout_out"))
     model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
     conv_base.trainable = False
-    model.compile(
-        loss="categorical_crossentropy",
-        optimizer=optimizers.RMSprop(lr=2e-5),
-        metrics=["accuracy"],
-    )
+    model.compile(loss="categorical_crossentropy", optimizer=optimizers.RMSprop(lr=2e-5), metrics=["accuracy"], )
+    if verbose:
+        model.summary()
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape):
+def cnn_vgg16(input_shape, output_shape, verbose=False):
     """
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
     :param input_shape: shape of input for model
     :param output_shape: shape of output
+    :param verbose: option to print model summary to console
     :return: the model object.
     """
     start = time.time()
@@ -140,6 +164,8 @@ def cnn_vgg16(input_shape, output_shape):
     model.add(layers.Dense(units=output_shape, activation="softmax"))
 
     model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    if verbose:
+        model.summary()
     return model, time.time() - start
 
 
@@ -171,7 +197,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     start = time.time()
     model.save('fresh_model')
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
-    step = y.shape[0]//n
+    step = y.shape[0] // n
     av_accuracy = 0
     for fold in range(n):
         # load new model starting from scratch
@@ -179,7 +205,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
 
         # define training set
         training = np.ones((X.shape[0]), dtype=bool)
-        training[fold*step:step*(fold+1)] = 0
+        training[fold * step:step * (fold + 1)] = 0
 
         # fit to training data
         start_train = time.time()
@@ -195,18 +221,22 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
             tt_train = time.time() - start_train
             if verbose:
                 print("Fold {} Finished Training On {} Augmented Data-points In {} Seconds!".format(fold, sum(training),
-                                                                                          round(tt_train, 2)))
+                                                                                                    round(tt_train, 2)))
 
         # test on remaining data
         start_test = time.time()
         _, acc = model.evaluate(X[np.logical_not(training)], y[np.logical_not(training)])
         acc *= 100
-        av_accuracy += (acc/n)
+        av_accuracy += (acc / n)
         tt_test = time.time() - start_test
         if verbose:
-            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold, sum(np.logical_not(training)), round(tt_test, 4), round(acc, 2)))
-
-    return round(av_accuracy, 2), time.time()-start
+            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold,
+                                                                                                       sum(np.logical_not(
+                                                                                                           training)),
+                                                                                                       round(tt_test,
+                                                                                                             4),
+                                                                                                       round(acc, 2)))
+    return round(av_accuracy, 2), time.time() - start
 
 
 def main():
@@ -224,7 +254,7 @@ def main():
         n, tte = exclude_image(missing, verbose=True)
         print("Excluded {} Files In {} Seconds!".format(n, round(tte, 4)))
 
-    ttc = time.time()-start
+    ttc = time.time() - start
     print("Total Data Cleaning Took {} Seconds!".format(round(ttc, 4)))
 
     # Send data to the pipeline
@@ -234,7 +264,7 @@ def main():
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = efficient_net((180, 180, 1), 1)
+    model, ttc = dense_net201((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Train model on training data
