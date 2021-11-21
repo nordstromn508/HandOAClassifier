@@ -83,6 +83,29 @@ def data_augment(data):
     return [], time.time() - start
 
 
+def inception_v3(input_shape, output_shape, verbose=False):
+    """
+    :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/inceptionV3
+    Creates an InceptionV3 model
+    :param input_shape: shape of input layer
+    :param output_shape: shape of output layer
+    :param verbose: option to print model summary to console
+    :return: compiled and ready-to-train model
+    """
+
+    start = time.time()
+    model = keras.applications.inception_v3.InceptionV3(include_top=True,
+                                                        weights=None,
+                                                        input_tensor=None,
+                                                        input_shape=input_shape,
+                                                        pooling=None,
+                                                        classes=output_shape)
+    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    if verbose:
+        model.summary()
+    return model, time.time() - start
+
+
 def dense_net201(input_shape, output_shape, verbose=False):
     """
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
@@ -264,7 +287,7 @@ def main():
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = dense_net201((180, 180, 1), 1, verbose=True)
+    model, ttc = inception_v3((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Train model on training data
