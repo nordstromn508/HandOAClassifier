@@ -92,7 +92,7 @@ def inception_v3(input_shape, output_shape, verbose=False):
     """
 
     start = time.time()
-    model = keras.applications.inception_v3.InceptionV3(include_top=True,
+    model = InceptionV3(include_top=True,
                                                         weights=None,
                                                         input_tensor=None,
                                                         input_shape=input_shape,
@@ -114,7 +114,7 @@ def dense_net201(input_shape, output_shape, verbose=False):
     :return: compiled and ready-to-train model
     """
     start = time.time()
-    model = keras.applications.densenet.DenseNet201(include_top=True,
+    model = DenseNet201(include_top=True,
                                                     weights=None,
                                                     input_tensor=None,
                                                     input_shape=input_shape,
