@@ -236,7 +236,6 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
                                                                                                        round(tt_test,
                                                                                                              4),
                                                                                                        round(acc, 2)))
-
     return round(av_accuracy, 2), time.time() - start
 
 
