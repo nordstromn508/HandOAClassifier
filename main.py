@@ -10,8 +10,9 @@ import time
 import pandas as pd
 import numpy as np
 import cv2
-import tensorflow as tf
 from keras import models, layers, losses, callbacks
+from tensorflow.keras.applications import *
+from tensorflow.keras import optimizers
 
 
 def exclude_image(paths, verbose=False):
@@ -80,14 +81,41 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def cnn_VGG16():
+def efficient_net(input_shape, output_shape):
     """
+    :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
+    Creates a efficientNet model, loads trained weights as a starting point
+    :param input_shape: shape of input
+    :param output_shape: shape of output
+    :return: compiled model
+    """
+    start = time.time()
+    conv_base = EfficientNetB6(weights="imagenet", include_top=False, input_shape=input_shape)
+    model = models.Sequential()
+    model.add(conv_base)
+    model.add(layers.GlobalMaxPooling2D(name="gap"))
+    model.add(layers.Dropout(dropout_rate=0.2, name="dropout_out"))
+    model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
+    conv_base.trainable = False
+    model.compile(
+        loss="categorical_crossentropy",
+        optimizer=optimizers.RMSprop(lr=2e-5),
+        metrics=["accuracy"],
+    )
+    return model, time.time() - start
+
+
+def cnn_vgg16(input_shape, output_shape):
+    """
+    :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
+    :param input_shape: shape of input for model
+    :param output_shape: shape of output
     :return: the model object.
     """
     start = time.time()
     model = models.Sequential()
-    model.add(layers.Conv2D(input_shape=(180, 180, 1), filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
+    model.add(layers.Conv2D(input_shape=input_shape, filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
     model.add(layers.Conv2D(filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
     model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
     model.add(layers.Conv2D(filters=128, kernel_size=(3, 3), padding="same", activation="relu"))
@@ -109,7 +137,7 @@ def cnn_VGG16():
     model.add(layers.Flatten())
     model.add(layers.Dense(units=4096, activation="relu"))
     model.add(layers.Dense(units=4096, activation="relu"))
-    model.add(layers.Dense(units=1, activation="softmax"))
+    model.add(layers.Dense(units=output_shape, activation="softmax"))
 
     model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
     return model, time.time() - start
@@ -118,7 +146,9 @@ def cnn_VGG16():
 def pipeline(paths, y):
     """
     This is our data 'pipeline' it ensures a consistent flow and modulation of the data. implements lazy image loading.
-    :return:
+    :param paths: path data for image input
+    :param y: truth label for data
+    :return:tuple of original X, y, augmented X, time to transform, time to augment, total time to pipeline
     """
     start = time.time()
     X = np.array([[cv2.imread(p)[:, :, 0] for p in path] for path in paths])
@@ -204,11 +234,8 @@ def main():
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = cnn_VGG16()
+    model, ttc = efficient_net((180, 180, 1), 1)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
-
-    print("First 5 images: {}".format(paths[0][:5]))
-    print("First 5 labels: {}".format(y[:5]))
 
     # Train model on training data
     accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(600, 1), X_aug, verbose=True)
