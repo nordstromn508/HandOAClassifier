@@ -7,8 +7,6 @@ main.py
 import glob
 import os
 import time
-
-import keras.applications.densenet
 import pandas as pd
 import numpy as np
 import cv2
@@ -94,7 +92,7 @@ def inception_v3(input_shape, output_shape, verbose=False):
     """
 
     start = time.time()
-    model = keras.applications.inception_v3.InceptionV3(include_top=True,
+    model = InceptionV3(include_top=True,
                                                         weights=None,
                                                         input_tensor=None,
                                                         input_shape=input_shape,
@@ -116,7 +114,7 @@ def dense_net201(input_shape, output_shape, verbose=False):
     :return: compiled and ready-to-train model
     """
     start = time.time()
-    model = keras.applications.densenet.DenseNet201(include_top=True,
+    model = DenseNet201(include_top=True,
                                                     weights=None,
                                                     input_tensor=None,
                                                     input_shape=input_shape,
@@ -134,30 +132,30 @@ def efficient_net(input_shape, output_shape, verbose=False):
     Creates a efficientNet model, loads trained weights as a starting point
     :param input_shape: shape of input
     :param output_shape: shape of output
-    :param verbose: option to print model summary to console
     :return: compiled model
     """
     start = time.time()
-    conv_base = EfficientNetB6(weights="imagenet", include_top=False, input_shape=input_shape)
+    conv_base = EfficientNetB6(include_top=False, input_shape=input_shape)
     model = models.Sequential()
     model.add(conv_base)
     model.add(layers.GlobalMaxPooling2D(name="gap"))
     model.add(layers.Dropout(dropout_rate=0.2, name="dropout_out"))
     model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
     conv_base.trainable = False
-    model.compile(loss="categorical_crossentropy", optimizer=optimizers.RMSprop(lr=2e-5), metrics=["accuracy"], )
-    if verbose:
-        model.summary()
+    model.compile(
+        loss="categorical_crossentropy",
+        optimizer=optimizers.RMSprop(lr=2e-5),
+        metrics=["accuracy"],
+    )
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape, verbose=False):
+def cnn_vgg16(input_shape, output_shape):
     """
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
     :param input_shape: shape of input for model
     :param output_shape: shape of output
-    :param verbose: option to print model summary to console
     :return: the model object.
     """
     start = time.time()
@@ -187,8 +185,6 @@ def cnn_vgg16(input_shape, output_shape, verbose=False):
     model.add(layers.Dense(units=output_shape, activation="softmax"))
 
     model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
-    if verbose:
-        model.summary()
     return model, time.time() - start
 
 
@@ -219,8 +215,15 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     """
     start = time.time()
     model.save('fresh_model')
+
+    # randomly shuffle data (random_state=42)
+    shuffle = np.random.RandomState(seed=42).permutation(len(y))
+    X = np.array([X[i] for i in shuffle])
+    # X_aug = np.array([X_aug[i] for i in shuffle]) comment this out for now because we dont have any data augmentation implemented
+    y = np.array([y[i] for i in shuffle])
+
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
-    step = y.shape[0] // n
+    step = y.shape[0]//n
     av_accuracy = 0
     for fold in range(n):
         # load new model starting from scratch
@@ -228,7 +231,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
 
         # define training set
         training = np.ones((X.shape[0]), dtype=bool)
-        training[fold * step:step * (fold + 1)] = 0
+        training[fold*step:step*(fold+1)] = 0
 
         # fit to training data
         start_train = time.time()
@@ -244,29 +247,25 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
             tt_train = time.time() - start_train
             if verbose:
                 print("Fold {} Finished Training On {} Augmented Data-points In {} Seconds!".format(fold, sum(training),
-                                                                                                    round(tt_train, 2)))
+                                                                                          round(tt_train, 2)))
 
         # test on remaining data
         start_test = time.time()
         _, acc = model.evaluate(X[np.logical_not(training)], y[np.logical_not(training)])
         acc *= 100
-        av_accuracy += (acc / n)
+        av_accuracy += (acc/n)
         tt_test = time.time() - start_test
         if verbose:
-            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold,
-                                                                                                       sum(np.logical_not(
-                                                                                                           training)),
-                                                                                                       round(tt_test,
-                                                                                                             4),
-                                                                                                       round(acc, 2)))
-    return round(av_accuracy, 2), time.time() - start
+            print("Fold {} Finished Testing On {} Data-points In {} Seconds, With {}% Accuracy".format(fold, sum(np.logical_not(training)), round(tt_test, 4), round(acc, 2)))
+
+    return round(av_accuracy, 2), time.time()-start
 
 
 def main():
     n = 1
     while n:
         # Get chunk of data
-        paths, y, ttr = get_data(50)
+        paths, y, ttr = get_data(10)
         print("Getting Data Paths Took {} Seconds!".format(round(ttr, 4)))
 
         # Data exclusion
@@ -277,7 +276,7 @@ def main():
         n, tte = exclude_image(missing, verbose=True)
         print("Excluded {} Files In {} Seconds!".format(n, round(tte, 4)))
 
-    ttc = time.time() - start
+    ttc = time.time()-start
     print("Total Data Cleaning Took {} Seconds!".format(round(ttc, 4)))
 
     # Send data to the pipeline
@@ -291,7 +290,7 @@ def main():
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Train model on training data
-    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(600, 1), X_aug, verbose=True)
+    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(y.shape[0], 1), X_aug, verbose=True)
     print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
 
 
