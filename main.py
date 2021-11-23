@@ -265,7 +265,7 @@ def main():
     n = 1
     while n:
         # Get chunk of data
-        paths, y, ttr = get_data(10)
+        paths, y, ttr = get_data(500)
         print("Getting Data Paths Took {} Seconds!".format(round(ttr, 4)))
 
         # Data exclusion
