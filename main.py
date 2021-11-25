@@ -210,8 +210,24 @@ def randomize(X, y, random_state=None):
 
 
 def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
+    start = time.time()
+    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
     X, y = randomize(X, y, random_state)
-    model.fit(X[0:split*.8], y[0:split[0]])
+
+    training = np.zeros(X.shape[0])
+    validate = np.zeros(X.shape[0])
+    testing = np.zeros(X.shape[0])
+
+    training[:split[0]*X.shape[0]] = 1
+    validate[split[0]*X.shape[0]:(split[0]+split[1])*X.shape[0]] = 1
+    testing[(split[0]+split[1])*X.shape[0]:] = 1
+
+    train_hist, train_score = model.fit(X[training], y[training], epochs=50)
+    val_hist, val_score = model.evaluate(X[validate], y[validate])
+    model.fit(X[validate], y[validate], epochs=50)
+    test_hist, test_score = model.evaluate(X[test], y[test])
+
+    return train_hist['accuracy'], val_hist['accuracy'], test_hist['accuracy'], train_score, val_score, test_score, time.time()-start
 
 
 def test(model, X, y, random_state=None):
@@ -297,9 +313,12 @@ def main():
         print("There Are {} MCP, {} PIP, And {} DIP Joints".format(len(df[df['joint'] == 'mcp']), len(df[df['joint'] == 'pip']), len(df[df['joint'] == 'dip'])))
         print("There Are {} KL0, {} KL1, {} KL2, {} KL3, And {} KL4".format(len(df[df['kl'] == 0]), len(df[df['kl'] == 1]), len(df[df['kl'] == 2]), len(df[df['kl'] == 3]), len(df[df['kl'] == 4])))
 
+    oa_data = df[df['oa'] == 1]
+    non_oa_data = df[df['oa'] == 0]
 
+    print(oa_data.head())
     # Send data to the pipeline
-    X, y, X_aug, ttt, tta, ttp = pipeline(df.head(100)['path'], df.head(100)['oa'])
+    X, y, X_aug, ttt, tta, ttp = pipeline((oa_data.head(100)['path'], non_oa_data.head(100)['path']), (non_oa_data.head(100)['oa'], non_oa_data.head(100)['oa']))
     print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
     print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
@@ -309,8 +328,10 @@ def main():
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Train model on training data
-    accuracy, ttv = cross_validation(model, X, y, X_aug, verbose=True)
-    print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
+    train_acc, val_acc, test_acc, train_score, val_score, test_score, ttm = train_test_validate(model, X, y, [.8, .1, .1], random_state=42)
+    print("Model Scored {}% Training Accuracy, In {} Seconds!".format(train_score, round(ttm, 4)))
+    print("Model Scored {}% Validation Accuracy, In {} Seconds!".format(val_score, round(ttm, 4)))
+    print("Model Scored {}% Testing Accuracy, In {} Seconds!".format(test_score, round(ttm, 4)))
 
 
 if __name__ == "__main__":
