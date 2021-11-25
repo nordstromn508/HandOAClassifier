@@ -33,33 +33,14 @@ def exclude_image(paths, verbose=False):
     return n, time.time() - start
 
 
-def get_data(n=None):
+def get_data():
     """
     method to import data and get it all nice and ready for learning.
-    :param n: number of image sets to obtain
-    :return: our dataset.
+    :return: pandas DataFrame of the dataset
     """
     start = time.time()
-    if n is None:
-        paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
-    else:
-        paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12 * n:12]]
-
-    file = pd.read_excel('test.xlsx')
-    file = file.set_index('id')
-
-    label = []
-    for i in range(len(paths)):
-        id = paths[i][0][18:25]
-        id = int(id)
-        for j in range(len(paths[i])):
-            joint = paths[i][j][26:30]
-            kl = file.at[id, joint]
-            kl = int(kl)
-            label.append(kl)
-
-    label = np.array(label, dtype=np.uint8)
-    return paths, label, time.time() - start
+    df = pd.read_excel('data/data.xlsx')
+    return df, time.time() - start
 
 
 def preprocess(data):
@@ -98,7 +79,7 @@ def inception_v3(input_shape, output_shape, verbose=False):
                                                         input_shape=input_shape,
                                                         pooling=None,
                                                         classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=losses.sparse_categorical_crossentropy, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -120,7 +101,7 @@ def dense_net201(input_shape, output_shape, verbose=False):
                                                     input_shape=input_shape,
                                                     pooling=None,
                                                     classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=losses.sparse_categorical_crossentropy, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -132,30 +113,38 @@ def efficient_net(input_shape, output_shape, verbose=False):
     Creates a efficientNet model, loads trained weights as a starting point
     :param input_shape: shape of input
     :param output_shape: shape of output
+    :param verbose: option to print model summary
     :return: compiled model
     """
     start = time.time()
-    conv_base = EfficientNetB6(include_top=False, input_shape=input_shape)
+    conv_base = EfficientNetB6(include_top=False,
+                                                        weights=None,
+                                                        input_tensor=None,
+                                                        input_shape=input_shape,
+                                                        pooling=None,
+                                                        classes=output_shape)
     model = models.Sequential()
     model.add(conv_base)
     model.add(layers.GlobalMaxPooling2D(name="gap"))
-    model.add(layers.Dropout(dropout_rate=0.2, name="dropout_out"))
+    model.add(layers.Dropout(rate=0.2, name="dropout_out"))
     model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
     conv_base.trainable = False
     model.compile(
-        loss="categorical_crossentropy",
+        loss=losses.sparse_categorical_crossentropy,
         optimizer=optimizers.RMSprop(lr=2e-5),
-        metrics=["accuracy"],
-    )
+        metrics=["accuracy"])
+    if verbose:
+        model.summary()
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape):
+def cnn_vgg16(input_shape, output_shape, verbose=False):
     """
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
     :param input_shape: shape of input for model
     :param output_shape: shape of output
+    :param verbose: option to print details about model
     :return: the model object.
     """
     start = time.time()
@@ -184,7 +173,9 @@ def cnn_vgg16(input_shape, output_shape):
     model.add(layers.Dense(units=4096, activation="relu"))
     model.add(layers.Dense(units=output_shape, activation="softmax"))
 
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=losses.sparse_categorical_crossentropy, metrics=['accuracy'])
+    if verbose:
+        model.summary()
     return model, time.time() - start
 
 
@@ -196,15 +187,50 @@ def pipeline(paths, y):
     :return:tuple of original X, y, augmented X, time to transform, time to augment, total time to pipeline
     """
     start = time.time()
-    X = np.array([[cv2.imread(p)[:, :, 0] for p in path] for path in paths])
+    X = np.array([cv2.imread(p)[:, :, 0] for p in paths])
     X, ttt = preprocess(X)
     X_aug, tta = data_augment(X)
     return X, y, X_aug, ttt, tta, time.time() - start
 
 
-def cross_validation(model, X, y, X_aug, n=10, verbose=False):
+def randomize(X, y, random_state=None):
+    """
+    randomize order of items in unison
+    :param X: array1
+    :param y: array2
+    :param random_state: random state for permutations
+    :return: random permutations of X, y pairs
+    """
+    if random_state is None:
+        shuffle = np.random.RandomState().permutation(y.shape[0])
+    else:
+        shuffle = np.random.RandomState(seed=random_state).permutation(y.shape[0])
+
+    return np.array([X[i] for i in shuffle]), np.array([y[i] for i in shuffle])
+
+
+def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
+    X, y = randomize(X, y, random_state)
+    model.fit(X[0:split*.8], y[0:split[0]])
+
+
+def test(model, X, y, random_state=None):
+    """
+    tests a model with a random permutation of the data
+    :param model: model to test
+    :param X: input data
+    :param y: output labels
+    :param random_state: random state for data permutation
+    :return: score of the model
+    """
+    X, y = randomize(X, y, random_state=random_state)
+    return model.evaluate(X, y)[1]
+
+
+def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None):
     """
     Performs n-fold cross validation on X, y pairs of data
+    :param random_state: random state for randomization
     :param verbose: Option to print details for validation timings
     :param X_aug: augmented input data in the same order as original data X
     :param model: model to cross validate
@@ -216,11 +242,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     start = time.time()
     model.save('fresh_model')
 
-    # randomly shuffle data (random_state=42)
-    shuffle = np.random.RandomState(seed=42).permutation(len(y))
-    X = np.array([X[i] for i in shuffle])
-    # X_aug = np.array([X_aug[i] for i in shuffle]) comment this out for now because we dont have any data augmentation implemented
-    y = np.array([y[i] for i in shuffle])
+    X, y = randomize(X, y, random_state=random_state)
 
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
     step = y.shape[0]//n
@@ -262,35 +284,32 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
 
 
 def main():
-    n = 1
-    while n:
-        # Get chunk of data
-        paths, y, ttr = get_data(500)
-        print("Getting Data Paths Took {} Seconds!".format(round(ttr, 4)))
+    verbose = 1
 
-        # Data exclusion
-        start = time.time()
-        missing = [p for p in paths if len(p) != 12]
-        if len(missing) > 0:
-            print("< < < DATA IMPURITY FOUND: EXCLUDING & RETRIEVING... > > >")
-        n, tte = exclude_image(missing, verbose=True)
-        print("Excluded {} Files In {} Seconds!".format(n, round(tte, 4)))
+    # Get DataFrame
+    df, ttr = get_data()
+    print("Reading Excel File Took {} Seconds!".format(round(ttr, 4)))
 
-    ttc = time.time()-start
-    print("Total Data Cleaning Took {} Seconds!".format(round(ttc, 4)))
+    # Understand the data
+    if verbose:
+        print("< < < Data Analytics > > >")
+        print("There Are {} OA Joints And {} non-OA joints".format(len(df[df['oa'] == 1]), len(df[df['oa'] == 0])))
+        print("There Are {} MCP, {} PIP, And {} DIP Joints".format(len(df[df['joint'] == 'mcp']), len(df[df['joint'] == 'pip']), len(df[df['joint'] == 'dip'])))
+        print("There Are {} KL0, {} KL1, {} KL2, {} KL3, And {} KL4".format(len(df[df['kl'] == 0]), len(df[df['kl'] == 1]), len(df[df['kl'] == 2]), len(df[df['kl'] == 3]), len(df[df['kl'] == 4])))
+
 
     # Send data to the pipeline
-    X, y, X_aug, ttt, tta, ttp = pipeline(paths, y)
+    X, y, X_aug, ttt, tta, ttp = pipeline(df.head(100)['path'], df.head(100)['oa'])
     print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
     print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = inception_v3((180, 180, 1), 1, verbose=True)
+    model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Train model on training data
-    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(y.shape[0], 1), X_aug, verbose=True)
+    accuracy, ttv = cross_validation(model, X, y, X_aug, verbose=True)
     print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
 
 
