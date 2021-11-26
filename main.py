@@ -214,13 +214,13 @@ def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
     X, y = randomize(X, y, random_state)
 
-    training = np.zeros(X.shape[0])
-    validate = np.zeros(X.shape[0])
-    testing = np.zeros(X.shape[0])
+    training = np.zeros(X.shape[0], dtype=bool)
+    validate = np.zeros(X.shape[0], dtype=bool)
+    testing = np.zeros(X.shape[0], dtype=bool)
 
-    training[:split[0]*X.shape[0]] = 1
-    validate[split[0]*X.shape[0]:(split[0]+split[1])*X.shape[0]] = 1
-    testing[(split[0]+split[1])*X.shape[0]:] = 1
+    training[:int(split[0]*X.shape[0])] = 1
+    validate[int(split[0]*X.shape[0]):int((split[0]+split[1])*X.shape[0])] = 1
+    testing[int((split[0]+split[1])*X.shape[0]):] = 1
 
     train_hist, train_score = model.fit(X[training], y[training], epochs=50)
     val_hist, val_score = model.evaluate(X[validate], y[validate])
@@ -316,9 +316,8 @@ def main():
     oa_data = df[df['oa'] == 1]
     non_oa_data = df[df['oa'] == 0]
 
-    print(oa_data.head())
     # Send data to the pipeline
-    X, y, X_aug, ttt, tta, ttp = pipeline((oa_data.head(100)['path'], non_oa_data.head(100)['path']), (non_oa_data.head(100)['oa'], non_oa_data.head(100)['oa']))
+    X, y, X_aug, ttt, tta, ttp = pipeline(np.concatenate((oa_data.head(100)['path'].values,  non_oa_data.head(100)['path'].values), axis=0), np.concatenate((non_oa_data.head(100)['oa'].values, non_oa_data.head(100)['oa'].values), axis=0))
     print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
     print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
     print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
