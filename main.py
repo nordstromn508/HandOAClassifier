@@ -62,8 +62,9 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def inception_v3(input_shape, output_shape, verbose=False):
+def inception_v3(input_shape, output_shape, verbose=False, loss=losses.binary_crossentropy):
     """
+    :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/inceptionV3
     Creates an InceptionV3 model
     :param input_shape: shape of input layer
@@ -79,14 +80,15 @@ def inception_v3(input_shape, output_shape, verbose=False):
                                                         input_shape=input_shape,
                                                         pooling=None,
                                                         classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.sparse_categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def dense_net201(input_shape, output_shape, verbose=False):
+def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_crossentropy):
     """
+    :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
     Creates a DenseNet201 model
     :param input_shape: shape of input layer
@@ -101,14 +103,15 @@ def dense_net201(input_shape, output_shape, verbose=False):
                                                     input_shape=input_shape,
                                                     pooling=None,
                                                     classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.sparse_categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def efficient_net(input_shape, output_shape, verbose=False):
+def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
     """
+    :param loss: loss function to calculate loss between functions
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
     Creates a efficientNet model, loads trained weights as a starting point
     :param input_shape: shape of input
@@ -130,7 +133,7 @@ def efficient_net(input_shape, output_shape, verbose=False):
     model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
     conv_base.trainable = False
     model.compile(
-        loss=losses.sparse_categorical_crossentropy,
+        loss=loss,
         optimizer=optimizers.RMSprop(lr=2e-5),
         metrics=["accuracy"])
     if verbose:
@@ -138,8 +141,9 @@ def efficient_net(input_shape, output_shape, verbose=False):
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape, verbose=False):
+def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
     """
+    :param loss: loss function to calculate loss between epochs
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
     :param input_shape: shape of input for model
@@ -149,31 +153,12 @@ def cnn_vgg16(input_shape, output_shape, verbose=False):
     """
     start = time.time()
     model = models.Sequential()
-    model.add(layers.Conv2D(input_shape=input_shape, filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=128, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=128, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=256, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=256, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=256, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-
+    model.add(VGG16(include_top=False, weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=1))
     model.add(layers.Flatten())
     model.add(layers.Dense(units=4096, activation="relu"))
     model.add(layers.Dense(units=4096, activation="relu"))
-    model.add(layers.Dense(units=output_shape, activation="softmax"))
-
-    model.compile(optimizer='adam', loss=losses.sparse_categorical_crossentropy, metrics=['accuracy'])
+    model.add(layers.Dense(units=1, activation="softmax"))
+    model.compile(optimizer='adam', loss=loss, metrics=['accuracy', 'binary_accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -222,12 +207,14 @@ def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
     validate[int(split[0]*X.shape[0]):int((split[0]+split[1])*X.shape[0])] = 1
     testing[int((split[0]+split[1])*X.shape[0]):] = 1
 
-    train_hist, train_score = model.fit(X[training], y[training], epochs=50)
-    val_hist, val_score = model.evaluate(X[validate], y[validate])
-    model.fit(X[validate], y[validate], epochs=50)
-    test_hist, test_score = model.evaluate(X[test], y[test])
+    train_score = model.fit(X[training], y[training], epochs=5)
+    test_score = model.evaluate(X[testing], y[testing])
+    # val_hist, val_score = model.evaluate(X[validate], y[validate])
+    # val_score = model.fit(X[validate], y[validate], epochs=50)
+    # test_hist, test_score = model.evaluate(X[testing], y[testing])
+    print(model.predict(X[0].reshape(1, 180, 180, 1)))
 
-    return train_hist['accuracy'], val_hist['accuracy'], test_hist['accuracy'], train_score, val_score, test_score, time.time()-start
+    return train_score.history  # train_hist, val_hist, test_hist, val_score, test_score, time.time()-start
 
 
 def test(model, X, y, random_state=None):
@@ -299,6 +286,17 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None)
     return round(av_accuracy, 2), time.time()-start
 
 
+def generate_data(X, y, batch_size=32):
+    cur_batch = 0
+    image_batch = []
+    label_batch = []
+    for b in range(batch_size):
+        image_batch.append(cv2.imread(X[cur_batch*batch_size+b]))
+        label_batch.append(y[cur_batch*batch_size+b])
+    cur_batch += 1
+    yield np.array(image_batch), np.array(label_batch)
+
+
 def main():
     verbose = 1
 
@@ -316,21 +314,47 @@ def main():
     oa_data = df[df['oa'] == 1]
     non_oa_data = df[df['oa'] == 0]
 
+    print(oa_data.head())
+    print(non_oa_data.head())
+    print(type(oa_data['oa'].values[0]))
+
     # Send data to the pipeline
-    X, y, X_aug, ttt, tta, ttp = pipeline(np.concatenate((oa_data.head(100)['path'].values,  non_oa_data.head(100)['path'].values), axis=0), np.concatenate((non_oa_data.head(100)['oa'].values, non_oa_data.head(100)['oa'].values), axis=0))
-    print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
-    print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
-    print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
+    # X, y, X_aug, ttt, tta, ttp = pipeline(np.concatenate((oa_data.head(3000)['path'].to_numpy(),  non_oa_data.head(3000)['path'].values), axis=0), np.concatenate((non_oa_data.head(3000)['oa'].to_numpy('uint8'), non_oa_data.head(3000)['oa'].to_numpy('uint8')), axis=0))
+    # print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
+    # print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
+    # print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
     model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-    # Train model on training data
-    train_acc, val_acc, test_acc, train_score, val_score, test_score, ttm = train_test_validate(model, X, y, [.8, .1, .1], random_state=42)
-    print("Model Scored {}% Training Accuracy, In {} Seconds!".format(train_score, round(ttm, 4)))
-    print("Model Scored {}% Validation Accuracy, In {} Seconds!".format(val_score, round(ttm, 4)))
-    print("Model Scored {}% Testing Accuracy, In {} Seconds!".format(test_score, round(ttm, 4)))
+    kl0 = df[df['kl'] == 0].iloc[:100]
+    kl1 = df[df['kl'] == 1].iloc[:100]
+    kl2 = df[df['kl'] == 2].iloc[:100]
+    kl3 = df[df['kl'] == 3].iloc[:100]
+    kl4 = df[df['kl'] == 4].iloc[:100]
+
+    train = pd.concat([kl0.iloc[:80], kl1.iloc[:80], kl2.iloc[:80], kl3.iloc[:80], kl4.iloc[:80]])
+    test = pd.concat([kl0.iloc[80:], kl1.iloc[80:], kl2.iloc[80:], kl3.iloc[80:], kl4.iloc[80:]])
+
+    X_train = train['path'].to_numpy()
+    X_test = test['path'].to_numpy()
+    y_train = train['kl'].to_numpy(dtype='uint8')
+    y_test = test['kl'].to_numpy(dtype='uint8')
+
+    print(type(generate_data(X_train, y_train)))
+    batch_size = 32
+    model.fit(generate_data(X_train, y_train, batch_size=batch_size), steps_per_epoch=len(X_train) // batch_size)
+    _, acc = model.evaluate(generate_data(X_test, y_test))
+    print("accuracy: {}%".format(round(acc, 4)))
+
+    exit()
+
+    # train model on training data
+    train_acc = train_test_validate(model, X, y, [.8, .1, .1], random_state=42)
+    print("Model Scored {}% Training Accuracy, In {} Seconds!".format(train_acc,  round(0, 4)))
+    # print("Model Scored {}% Validation Accuracy, In {} Seconds!".format(val_score, round(ttm, 4)))
+    # print("Model Scored {}% Testing Accuracy, In {} Seconds!".format(test_score, round(ttm, 4)))
 
 
 if __name__ == "__main__":
