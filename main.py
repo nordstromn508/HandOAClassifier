@@ -327,7 +327,7 @@ def main():
     # print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = inception_v3((180, 180, 1), 1, verbose=True)
+    model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     kl0 = df[df['kl'] == 0].iloc[:100]
@@ -342,6 +342,10 @@ def main():
 
     datagen = ImageDataGenerator()
 
+    df_train['kl'] = df_train['kl'].astype(str)
+    df_val['kl'] = df_val['kl'].astype(str)
+    df_test['kl'] = df_test['kl'].astype(str)
+
     train_generator = datagen.flow_from_dataframe(
         dataframe=df_train,
         directory=None,
@@ -351,7 +355,7 @@ def main():
         batch_size=32,
         seed=42,
         shuffle=True,
-        class_mode="categorical",
+        class_mode="sparse",
         target_size=(32, 32))
     valid_generator = datagen.flow_from_dataframe(
         dataframe=df_val,
@@ -362,7 +366,7 @@ def main():
         batch_size=32,
         seed=42,
         shuffle=True,
-        class_mode="categorical",
+        class_mode="sparse",
         target_size=(32, 32))
     test_datagen = ImageDataGenerator()
     test_generator = test_datagen.flow_from_dataframe(
@@ -375,6 +379,21 @@ def main():
         shuffle=False,
         class_mode=None,
         target_size=(32, 32))
+
+    # fit the model
+    STEP_SIZE_TRAIN = train_generator.n // train_generator.batch_size
+    STEP_SIZE_VALID = valid_generator.n // valid_generator.batch_size
+    STEP_SIZE_TEST = test_generator.n // test_generator.batch_size
+    model.fit_generator(generator=train_generator,
+                        steps_per_epoch=STEP_SIZE_TRAIN,
+                        validation_data=valid_generator,
+                        validation_steps=STEP_SIZE_VALID,
+                        epochs=10
+                        )
+
+    # test model
+    model.evaluate_generator(generator=valid_generator,
+                             steps=STEP_SIZE_TEST)
 
     batch_size = 10
     model.fit()
