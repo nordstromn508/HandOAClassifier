@@ -7,6 +7,8 @@ main.py
 import glob
 import os
 import time
+
+from keras_preprocessing.image import ImageDataGenerator
 import pandas as pd
 import numpy as np
 import cv2
@@ -325,7 +327,7 @@ def main():
     # print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
-    model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
+    model, ttc = inception_v3((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     kl0 = df[df['kl'] == 0].iloc[:100]
@@ -334,18 +336,49 @@ def main():
     kl3 = df[df['kl'] == 3].iloc[:100]
     kl4 = df[df['kl'] == 4].iloc[:100]
 
-    train = pd.concat([kl0.iloc[:80], kl1.iloc[:80], kl2.iloc[:80], kl3.iloc[:80], kl4.iloc[:80]])
-    test = pd.concat([kl0.iloc[80:], kl1.iloc[80:], kl2.iloc[80:], kl3.iloc[80:], kl4.iloc[80:]])
+    df_train = pd.concat([kl0.iloc[:80], kl1.iloc[:80], kl2.iloc[:80], kl3.iloc[:80], kl4.iloc[:80]])
+    df_val = pd.concat([kl0.iloc[80:90], kl1.iloc[80:90], kl2.iloc[80:90], kl3.iloc[80:90], kl4.iloc[80:90]])
+    df_test = pd.concat([kl0.iloc[90:], kl1.iloc[90:], kl2.iloc[90:], kl3.iloc[90:], kl4.iloc[90:]])
 
-    X_train = train['path'].to_numpy()
-    X_test = test['path'].to_numpy()
-    y_train = train['kl'].to_numpy(dtype='uint8')
-    y_test = test['kl'].to_numpy(dtype='uint8')
+    datagen = ImageDataGenerator()
 
-    print(type(generate_data(X_train, y_train)))
-    batch_size = 32
-    model.fit(generate_data(X_train, y_train, batch_size=batch_size), steps_per_epoch=len(X_train) // batch_size)
-    _, acc = model.evaluate(generate_data(X_test, y_test))
+    train_generator = datagen.flow_from_dataframe(
+        dataframe=df_train,
+        directory=None,
+        x_col="path",
+        y_col="kl",
+        subset="training",
+        batch_size=32,
+        seed=42,
+        shuffle=True,
+        class_mode="categorical",
+        target_size=(32, 32))
+    valid_generator = datagen.flow_from_dataframe(
+        dataframe=df_val,
+        directory=None,
+        x_col="path",
+        y_col="kl",
+        subset="validation",
+        batch_size=32,
+        seed=42,
+        shuffle=True,
+        class_mode="categorical",
+        target_size=(32, 32))
+    test_datagen = ImageDataGenerator()
+    test_generator = test_datagen.flow_from_dataframe(
+        dataframe=df_test,
+        directory=None,
+        x_col="path",
+        y_col=None,
+        batch_size=32,
+        seed=42,
+        shuffle=False,
+        class_mode=None,
+        target_size=(32, 32))
+
+    batch_size = 10
+    model.fit()
+    _, acc = model.evaluate()
     print("accuracy: {}%".format(round(acc, 4)))
 
     exit()
