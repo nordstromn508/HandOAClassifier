@@ -7,7 +7,7 @@ main.py
 import glob
 import os
 import time
-
+import scipy
 from keras_preprocessing.image import ImageDataGenerator
 import pandas as pd
 import numpy as np
@@ -15,6 +15,8 @@ import cv2
 from keras import models, layers, losses, callbacks
 from tensorflow.keras.applications import *
 from tensorflow.keras import optimizers
+import tensorflow as tf
+import matplotlib.pyplot as plt
 
 
 def exclude_image(paths, verbose=False):
@@ -155,7 +157,7 @@ def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentrop
     """
     start = time.time()
     model = models.Sequential()
-    model.add(VGG16(include_top=False, weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=1))
+    model.add(VGG16(include_top=False, weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=output_shape))
     model.add(layers.Flatten())
     model.add(layers.Dense(units=4096, activation="relu"))
     model.add(layers.Dense(units=4096, activation="relu"))
@@ -219,17 +221,58 @@ def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
     return train_score.history  # train_hist, val_hist, test_hist, val_score, test_score, time.time()-start
 
 
-def test(model, X, y, random_state=None):
+def train_test(model, df, split=.8, random_state=None):
     """
     tests a model with a random permutation of the data
     :param model: model to test
-    :param X: input data
-    :param y: output labels
     :param random_state: random state for data permutation
     :return: score of the model
     """
-    X, y = randomize(X, y, random_state=random_state)
-    return model.evaluate(X, y)[1]
+    start = time.time()
+
+    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
+
+    oa0 = df[df['oa'] == 0].head(3500)
+    oa1 = df[df['oa'] == 1].head(3500)
+
+    df_train = pd.concat([oa0.iloc[:int(split * len(oa0))], oa1.iloc[:int(split * len(oa1))]])
+    df_test = pd.concat([oa0.iloc[int(split * len(oa0)):], oa1.iloc[int(split * len(oa1)):]])
+
+    print("Input y shape: {}".format(df_train["oa"].shape))
+    print("Input y: {}".format(df_train["oa"]))
+
+    train_generator = ImageDataGenerator().flow_from_dataframe(
+        dataframe=df_train,
+        x_col="path",
+        y_col="oa",
+        class_mode="raw",
+        shuffle=True,
+        target_size=(180, 180),
+        color_mode='grayscale')
+    test_generator = ImageDataGenerator().flow_from_dataframe(
+        dataframe=df_test,
+        x_col="path",
+        y_col='oa',
+        shuffle=True,
+        class_mode='raw',
+        target_size=(180, 180),
+        color_mode='grayscale')
+
+    hist_train = model.fit(train_generator, epochs=10)
+    hist_test = model.evaluate(test_generator)
+
+    test_generator.reset()
+
+    pred = model.predict(test_generator)
+    actual = df_test['oa'].to_numpy()
+
+    print("pred shape: {}".format(pred.shape))
+    print("actual shape: {}".format(actual.shape))
+
+    print("pred: {}".format(pred))
+    print("actual: {}".format(actual))
+
+    return hist_train.history, hist_test, tf.math.confusion_matrix(actual, pred), time.time()-start
 
 
 def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None):
@@ -309,102 +352,36 @@ def main():
     # Understand the data
     if verbose:
         print("< < < Data Analytics > > >")
+        print("There Are {} Total Data Points".format(len(df)))
         print("There Are {} OA Joints And {} non-OA joints".format(len(df[df['oa'] == 1]), len(df[df['oa'] == 0])))
         print("There Are {} MCP, {} PIP, And {} DIP Joints".format(len(df[df['joint'] == 'mcp']), len(df[df['joint'] == 'pip']), len(df[df['joint'] == 'dip'])))
         print("There Are {} KL0, {} KL1, {} KL2, {} KL3, And {} KL4".format(len(df[df['kl'] == 0]), len(df[df['kl'] == 1]), len(df[df['kl'] == 2]), len(df[df['kl'] == 3]), len(df[df['kl'] == 4])))
-
-    oa_data = df[df['oa'] == 1]
-    non_oa_data = df[df['oa'] == 0]
-
-    print(oa_data.head())
-    print(non_oa_data.head())
-    print(type(oa_data['oa'].values[0]))
-
-    # Send data to the pipeline
-    # X, y, X_aug, ttt, tta, ttp = pipeline(np.concatenate((oa_data.head(3000)['path'].to_numpy(),  non_oa_data.head(3000)['path'].values), axis=0), np.concatenate((non_oa_data.head(3000)['oa'].to_numpy('uint8'), non_oa_data.head(3000)['oa'].to_numpy('uint8')), axis=0))
-    # print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
-    # print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
-    # print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
 
     # Create our model
     model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-    kl0 = df[df['kl'] == 0].iloc[:100]
-    kl1 = df[df['kl'] == 1].iloc[:100]
-    kl2 = df[df['kl'] == 2].iloc[:100]
-    kl3 = df[df['kl'] == 3].iloc[:100]
-    kl4 = df[df['kl'] == 4].iloc[:100]
+    # kl0 = df[df['kl'] == 0].iloc[:100]
+    # kl1 = df[df['kl'] == 1].iloc[:100]
+    # kl2 = df[df['kl'] == 2].iloc[:100]
+    # kl3 = df[df['kl'] == 3].iloc[:100]
+    # kl4 = df[df['kl'] == 4].iloc[:100]
+    # df_train = pd.concat([kl0.iloc[:80], kl1.iloc[:80], kl2.iloc[:80], kl3.iloc[:80], kl4.iloc[:80]])
+    # df_test = pd.concat([kl0.iloc[80:], kl1.iloc[80:], kl2.iloc[80:], kl3.iloc[80:], kl4.iloc[80:]])
 
-    df_train = pd.concat([kl0.iloc[:80], kl1.iloc[:80], kl2.iloc[:80], kl3.iloc[:80], kl4.iloc[:80]])
-    df_val = pd.concat([kl0.iloc[80:90], kl1.iloc[80:90], kl2.iloc[80:90], kl3.iloc[80:90], kl4.iloc[80:90]])
-    df_test = pd.concat([kl0.iloc[90:], kl1.iloc[90:], kl2.iloc[90:], kl3.iloc[90:], kl4.iloc[90:]])
+    # Test model
+    hist_train, hist_test, cm, ttt = train_test(model, df, .8)
+    print(cm)
+    print("Training History: {}".format(hist_train))
+    print("Testing History: {}".format(hist_test))
+    print("Model Training Took {} Seconds!".format(round(ttt, 4)))
 
-    datagen = ImageDataGenerator()
-
-    df_train['kl'] = df_train['kl'].astype(str)
-    df_val['kl'] = df_val['kl'].astype(str)
-    df_test['kl'] = df_test['kl'].astype(str)
-
-    train_generator = datagen.flow_from_dataframe(
-        dataframe=df_train,
-        directory=None,
-        x_col="path",
-        y_col="kl",
-        subset="training",
-        batch_size=32,
-        seed=42,
-        shuffle=True,
-        class_mode="sparse",
-        target_size=(32, 32))
-    valid_generator = datagen.flow_from_dataframe(
-        dataframe=df_val,
-        directory=None,
-        x_col="path",
-        y_col="kl",
-        subset="validation",
-        batch_size=32,
-        seed=42,
-        shuffle=True,
-        class_mode="sparse",
-        target_size=(32, 32))
-    test_datagen = ImageDataGenerator()
-    test_generator = test_datagen.flow_from_dataframe(
-        dataframe=df_test,
-        directory=None,
-        x_col="path",
-        y_col=None,
-        batch_size=32,
-        seed=42,
-        shuffle=False,
-        class_mode=None,
-        target_size=(32, 32))
-
-    # fit the model
-    STEP_SIZE_TRAIN = train_generator.n // train_generator.batch_size
-    STEP_SIZE_VALID = valid_generator.n // valid_generator.batch_size
-    STEP_SIZE_TEST = test_generator.n // test_generator.batch_size
-    model.fit_generator(generator=train_generator,
-                        steps_per_epoch=STEP_SIZE_TRAIN,
-                        validation_data=valid_generator,
-                        validation_steps=STEP_SIZE_VALID,
-                        epochs=10
-                        )
-
-    # test model
-    model.evaluate_generator(generator=valid_generator,
-                             steps=STEP_SIZE_TEST)
-
-    batch_size = 10
-    model.fit()
-    _, acc = model.evaluate()
-    print("accuracy: {}%".format(round(acc, 4)))
-
-    exit()
+    # Plot Results
+    # plt.plot()
 
     # train model on training data
-    train_acc = train_test_validate(model, X, y, [.8, .1, .1], random_state=42)
-    print("Model Scored {}% Training Accuracy, In {} Seconds!".format(train_acc,  round(0, 4)))
+    # train_acc = train_test_validate(model, X, y, [.8, .1, .1], random_state=42)
+    # print("Model Scored {}% Training Accuracy, In {} Seconds!".format(train_acc,  round(0, 4)))
     # print("Model Scored {}% Validation Accuracy, In {} Seconds!".format(val_score, round(ttm, 4)))
     # print("Model Scored {}% Testing Accuracy, In {} Seconds!".format(test_score, round(ttm, 4)))
 
