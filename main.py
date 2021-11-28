@@ -7,13 +7,16 @@ main.py
 import glob
 import os
 import time
-import scipy
+
+import keras.applications.vgg16
+import keras_preprocessing.image
+from scipy.ndimage import zoom
 from keras_preprocessing.image import ImageDataGenerator
 import pandas as pd
 import numpy as np
 import cv2
 from keras import models, layers, losses, callbacks
-from tensorflow.keras.applications import *
+from tensorflow.keras.applications import vgg16, inception_v3, efficientnet, densenet
 from tensorflow.keras import optimizers
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -78,7 +81,7 @@ def inception_v3(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     """
 
     start = time.time()
-    model = InceptionV3(include_top=True,
+    model = inception_v3.InceptionV3(include_top=True,
                                                         weights=None,
                                                         input_tensor=None,
                                                         input_shape=input_shape,
@@ -101,7 +104,7 @@ def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     :return: compiled and ready-to-train model
     """
     start = time.time()
-    model = DenseNet201(include_top=True,
+    model = densenet.DenseNet201(include_top=True,
                                                     weights=None,
                                                     input_tensor=None,
                                                     input_shape=input_shape,
@@ -111,6 +114,18 @@ def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     if verbose:
         model.summary()
     return model, time.time() - start
+
+
+def preprocess_zoom(img, scale=4):
+    # resize image
+    h, w = img.shape
+    img = cv2.resize(img, (h * scale, w * scale), interpolation=cv2.INTER_AREA)
+
+    # crop image
+    x = img.shape[1]//2 - w // 2
+    y = img.shape[0]//2 - h // 2
+
+    return img[int(y):int(y + h), int(x):int(x + w)]
 
 
 def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
@@ -124,7 +139,7 @@ def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossen
     :return: compiled model
     """
     start = time.time()
-    conv_base = EfficientNetB6(include_top=False,
+    conv_base = efficientnet.EfficientNetB6(include_top=False,
                                                         weights=None,
                                                         input_tensor=None,
                                                         input_shape=input_shape,
@@ -138,7 +153,7 @@ def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossen
     conv_base.trainable = False
     model.compile(
         loss=loss,
-        optimizer=optimizers.RMSprop(lr=2e-5),
+        optimizer=optimizers.RMSprop(learning_rate=2e-5),
         metrics=["accuracy"])
     if verbose:
         model.summary()
@@ -156,12 +171,7 @@ def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentrop
     :return: the model object.
     """
     start = time.time()
-    model = models.Sequential()
-    model.add(VGG16(include_top=False, weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=output_shape))
-    model.add(layers.Flatten())
-    model.add(layers.Dense(units=4096, activation="relu"))
-    model.add(layers.Dense(units=4096, activation="relu"))
-    model.add(layers.Dense(units=1, activation="softmax"))
+    model = vgg16.VGG16(weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=output_shape)
     model.compile(optimizer='adam', loss=loss, metrics=['accuracy', 'binary_accuracy'])
     if verbose:
         model.summary()
@@ -221,58 +231,131 @@ def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
     return train_score.history  # train_hist, val_hist, test_hist, val_score, test_score, time.time()-start
 
 
-def train_test(model, df, split=.8, random_state=None):
+def generate_data_binary(df, train=.8, test=.2, max_data=3500):
     """
-    tests a model with a random permutation of the data
-    :param model: model to test
-    :param random_state: random state for data permutation
-    :return: score of the model
+    create data generators with train-test-validate split using max_data rows from DataFrame based on binary oa label
+    :param df: DataFrame with data to flow from
+    :param train: percentage (out of one) for training set
+    :param test: percentage (out of one) for testing set
+    :param max_data: max rows of data to use
+    :return: tuple of training data generator, testing data generator and time taken
     """
     start = time.time()
 
-    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
+    oa0 = df[df['oa'] == 0].head(max_data)
+    oa1 = df[df['oa'] == 1].head(max_data)
 
-    oa0 = df[df['oa'] == 0].head(3500)
-    oa1 = df[df['oa'] == 1].head(3500)
+    df_train = pd.concat([
+        oa0.iloc[:int(train * len(oa0))],
+        oa1.iloc[:int(train * len(oa1))]])
 
-    df_train = pd.concat([oa0.iloc[:int(split * len(oa0))], oa1.iloc[:int(split * len(oa1))]])
-    df_test = pd.concat([oa0.iloc[int(split * len(oa0)):], oa1.iloc[int(split * len(oa1)):]])
+    # df_val = pd.concat([
+    #     oa0.iloc[int((train+test) * len(oa0)):],
+    #     oa1.iloc[int((train+test) * len(oa0)):]])
 
-    print("Input y shape: {}".format(df_train["oa"].shape))
-    print("Input y: {}".format(df_train["oa"]))
+    df_test = pd.concat([
+        oa0.iloc[int(train * len(oa0)):int((train+test) * len(oa0))],
+        oa1.iloc[int(train * len(oa1)):int((train+test) * len(oa0))]])
 
-    train_generator = ImageDataGenerator().flow_from_dataframe(
-        dataframe=df_train,
+    generators = [ImageDataGenerator().flow_from_dataframe(
+        dataframe=x,
         x_col="path",
         y_col="oa",
         class_mode="raw",
         shuffle=True,
         target_size=(180, 180),
-        color_mode='grayscale')
-    test_generator = ImageDataGenerator().flow_from_dataframe(
-        dataframe=df_test,
-        x_col="path",
-        y_col='oa',
-        shuffle=True,
-        class_mode='raw',
-        target_size=(180, 180),
-        color_mode='grayscale')
+        preprocess=None,
+        color_mode='grayscale') for x in [df_train, df_test]]
 
-    hist_train = model.fit(train_generator, epochs=10)
-    hist_test = model.evaluate(test_generator)
+    return generators[0], generators[1], df_test['oa'], time.time() - start
 
-    test_generator.reset()
 
-    pred = model.predict(test_generator)
-    actual = df_test['oa'].to_numpy()
+def generate_data_multiclass(df, train=.8, test=.2, max_data=100):
+    """
+    create data generators with train-test-validate split using max_data rows from DataFrame based on multiclass kl label
+    :param df: DataFrame with data to flow from
+    :param train: percentage (out of one) for training set
+    :param test: percentage (out of one) for testing set
+    :param max_data: max rows of data to use
+    :return: tuple of training data generator, testing data generator and time taken
+    """
+    start = time.time()
 
-    print("pred shape: {}".format(pred.shape))
-    print("actual shape: {}".format(actual.shape))
+    kl0 = df[df['kl'] == 0].head(max_data)
+    kl1 = df[df['kl'] == 1].head(max_data)
+    kl2 = df[df['kl'] == 2].head(max_data)
+    kl3 = df[df['kl'] == 3].head(max_data)
+    kl4 = df[df['kl'] == 4].head(max_data)
 
-    print("pred: {}".format(pred))
-    print("actual: {}".format(actual))
+    df_train = pd.concat([
+        kl0.iloc[:int(train * len(kl0))],
+        kl1.iloc[:int(train * len(kl1))],
+        kl1.iloc[:int(train * len(kl2))],
+        kl1.iloc[:int(train * len(kl3))],
+        kl1.iloc[:int(train * len(kl4))]])
 
-    return hist_train.history, hist_test, tf.math.confusion_matrix(actual, pred), time.time()-start
+    # df_val = pd.concat([
+    #     kl0.iloc[int((train + test) * len(kl0)):],
+    #     kl1.iloc[int((train + test) * len(kl1)):],
+    #     kl2.iloc[int((train + test) * len(kl2)):],
+    #     kl3.iloc[int((train + test) * len(kl3)):],
+    #     kl4.iloc[int((train + test) * len(kl4)):]])
+
+    df_test = pd.concat([
+        kl0.iloc[int(train * len(kl0)):int((train + test) * len(kl0))],
+        kl1.iloc[int(train * len(kl1)):int((train + test) * len(kl1))],
+        kl2.iloc[int(train * len(kl2)):int((train + test) * len(kl2))],
+        kl3.iloc[int(train * len(kl3)):int((train + test) * len(kl3))],
+        kl4.iloc[int(train * len(kl4)):int((train + test) * len(kl4))]])
+
+    generators = [ImageDataGenerator().flow_from_dataframe(
+            dataframe=x,
+            x_col="path",
+            y_col="kl",
+            class_mode="raw",
+            shuffle=True,
+            preprocess_function=None,
+            target_size=(180, 180),
+            color_mode='grayscale') for x in [df_train, df_test]]
+
+    return generators[0], generators[1], df_test['kl'], time.time() - start
+
+
+def generate_data(df, train, test, classification_type):
+    """
+    Creates data generators for either binary or multiclass classification
+    :param df: DataFrame source of data
+    :param train: percentage (out of one) for training set
+    :param test: percentage (out of one) for testing set
+    :param classification_type: either 'binary' or 'multiclass'
+    :return: data generators and timings
+    """
+    if classification_type == 'binary':
+        return generate_data_binary(df, train, test)
+    return generate_data_multiclass(df, train, test)
+
+
+def train_test(model, gen_train, gen_test):
+    """
+    trains and tests model
+    :param model: model to work with
+    :param gen_train: training data generata
+    :param gen_val: validation data generator
+    :param gen_test: testing data generata
+    :return: tuple of history metrics, confusion matrix, and timings
+    """
+    start = time.time()
+
+    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
+
+    hist_train = model.fit(gen_train, epochs=50)
+    model.evaluate(gen_test)
+
+    gen_test.reset()
+
+    pred = model.predict(gen_test)
+
+    return hist_train.history, pred, time.time()-start
 
 
 def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None):
@@ -331,15 +414,11 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None)
     return round(av_accuracy, 2), time.time()-start
 
 
-def generate_data(X, y, batch_size=32):
-    cur_batch = 0
-    image_batch = []
-    label_batch = []
-    for b in range(batch_size):
-        image_batch.append(cv2.imread(X[cur_batch*batch_size+b]))
-        label_batch.append(y[cur_batch*batch_size+b])
-    cur_batch += 1
-    yield np.array(image_batch), np.array(label_batch)
+def plot_results(history, metric):
+    plt.plot(range(len(history[metric])), history[metric])
+    plt.ylabel(metric)
+    plt.xlabel('epoch')
+    plt.show()
 
 
 def main():
@@ -357,33 +436,35 @@ def main():
         print("There Are {} MCP, {} PIP, And {} DIP Joints".format(len(df[df['joint'] == 'mcp']), len(df[df['joint'] == 'pip']), len(df[df['joint'] == 'dip'])))
         print("There Are {} KL0, {} KL1, {} KL2, {} KL3, And {} KL4".format(len(df[df['kl'] == 0]), len(df[df['kl'] == 1]), len(df[df['kl'] == 2]), len(df[df['kl'] == 3]), len(df[df['kl'] == 4])))
 
+        plt.figure()
+
+        # subplot(r,c) provide the no. of rows and columns
+        f, axarr = plt.subplots(4, 1)
+
+        # use the created array to output your multiple images. In this case I have stacked 4 images vertically
+        axarr[0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1))
+        axarr[1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
+        axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
+        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
+        plt.show()
+
     # Create our model
     model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-    # kl0 = df[df['kl'] == 0].iloc[:100]
-    # kl1 = df[df['kl'] == 1].iloc[:100]
-    # kl2 = df[df['kl'] == 2].iloc[:100]
-    # kl3 = df[df['kl'] == 3].iloc[:100]
-    # kl4 = df[df['kl'] == 4].iloc[:100]
-    # df_train = pd.concat([kl0.iloc[:80], kl1.iloc[:80], kl2.iloc[:80], kl3.iloc[:80], kl4.iloc[:80]])
-    # df_test = pd.concat([kl0.iloc[80:], kl1.iloc[80:], kl2.iloc[80:], kl3.iloc[80:], kl4.iloc[80:]])
+    # Get Data Generators
+    train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
+    print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
 
     # Test model
-    hist_train, hist_test, cm, ttt = train_test(model, df, .8)
-    print(cm)
+    hist_train, pred, ttt = train_test(model, train, test)
+    print(tf.math.confusion_matrix(truth, pred))
     print("Training History: {}".format(hist_train))
-    print("Testing History: {}".format(hist_test))
     print("Model Training Took {} Seconds!".format(round(ttt, 4)))
 
     # Plot Results
-    # plt.plot()
-
-    # train model on training data
-    # train_acc = train_test_validate(model, X, y, [.8, .1, .1], random_state=42)
-    # print("Model Scored {}% Training Accuracy, In {} Seconds!".format(train_acc,  round(0, 4)))
-    # print("Model Scored {}% Validation Accuracy, In {} Seconds!".format(val_score, round(ttm, 4)))
-    # print("Model Scored {}% Testing Accuracy, In {} Seconds!".format(test_score, round(ttm, 4)))
+    plot_results(hist_train, 'loss')
+    plot_results(hist_train, 'accuracy')
 
 
 if __name__ == "__main__":
