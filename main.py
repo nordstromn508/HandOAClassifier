@@ -7,12 +7,19 @@ main.py
 import glob
 import os
 import time
+
+import keras.applications.vgg16
+import keras_preprocessing.image
+from scipy.ndimage import zoom
+from keras_preprocessing.image import ImageDataGenerator
 import pandas as pd
 import numpy as np
 import cv2
 from keras import models, layers, losses, callbacks
-from tensorflow.keras.applications import *
+from tensorflow.keras.applications import vgg16, inception_v3, efficientnet, densenet
 from tensorflow.keras import optimizers
+import tensorflow as tf
+import matplotlib.pyplot as plt
 
 
 def exclude_image(paths, verbose=False):
@@ -33,33 +40,14 @@ def exclude_image(paths, verbose=False):
     return n, time.time() - start
 
 
-def get_data(n=None):
+def get_data():
     """
     method to import data and get it all nice and ready for learning.
-    :param n: number of image sets to obtain
-    :return: our dataset.
+    :return: pandas DataFrame of the dataset
     """
     start = time.time()
-    if n is None:
-        paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0::12]]
-    else:
-        paths = [glob.glob("data/FingerJoints/" + x[0:7] + "*") for x in os.listdir("data/FingerJoints/")[0:12 * n:12]]
-
-    file = pd.read_excel('test.xlsx')
-    file = file.set_index('id')
-
-    label = []
-    for i in range(len(paths)):
-        id = paths[i][0][18:25]
-        id = int(id)
-        for j in range(len(paths[i])):
-            joint = paths[i][j][26:30]
-            kl = file.at[id, joint]
-            kl = int(kl)
-            label.append(kl)
-
-    label = np.array(label, dtype=np.uint8)
-    return paths, label, time.time() - start
+    df = pd.read_excel('data/data.xlsx')
+    return df, time.time() - start
 
 
 def preprocess(data):
@@ -81,8 +69,9 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def inception_v3(input_shape, output_shape, verbose=False):
+def inception_v3(input_shape, output_shape, verbose=False, loss=losses.binary_crossentropy):
     """
+    :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/inceptionV3
     Creates an InceptionV3 model
     :param input_shape: shape of input layer
@@ -92,20 +81,21 @@ def inception_v3(input_shape, output_shape, verbose=False):
     """
 
     start = time.time()
-    model = InceptionV3(include_top=True,
+    model = inception_v3.InceptionV3(include_top=True,
                                                         weights=None,
                                                         input_tensor=None,
                                                         input_shape=input_shape,
                                                         pooling=None,
                                                         classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def dense_net201(input_shape, output_shape, verbose=False):
+def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_crossentropy):
     """
+    :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
     Creates a DenseNet201 model
     :param input_shape: shape of input layer
@@ -114,77 +104,77 @@ def dense_net201(input_shape, output_shape, verbose=False):
     :return: compiled and ready-to-train model
     """
     start = time.time()
-    model = DenseNet201(include_top=True,
+    model = densenet.DenseNet201(include_top=True,
                                                     weights=None,
                                                     input_tensor=None,
                                                     input_shape=input_shape,
                                                     pooling=None,
                                                     classes=output_shape)
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def efficient_net(input_shape, output_shape, verbose=False):
+def preprocess_zoom(img, scale=4):
+    # resize image
+    h, w = img.shape
+    img = cv2.resize(img, (h * scale, w * scale), interpolation=cv2.INTER_AREA)
+
+    # crop image
+    x = img.shape[1]//2 - w // 2
+    y = img.shape[0]//2 - h // 2
+
+    return img[int(y):int(y + h), int(x):int(x + w)]
+
+
+def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
     """
+    :param loss: loss function to calculate loss between functions
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
     Creates a efficientNet model, loads trained weights as a starting point
     :param input_shape: shape of input
     :param output_shape: shape of output
+    :param verbose: option to print model summary
     :return: compiled model
     """
     start = time.time()
-    conv_base = EfficientNetB6(include_top=False, input_shape=input_shape)
+    conv_base = efficientnet.EfficientNetB6(include_top=False,
+                                                        weights=None,
+                                                        input_tensor=None,
+                                                        input_shape=input_shape,
+                                                        pooling=None,
+                                                        classes=output_shape)
     model = models.Sequential()
     model.add(conv_base)
     model.add(layers.GlobalMaxPooling2D(name="gap"))
-    model.add(layers.Dropout(dropout_rate=0.2, name="dropout_out"))
+    model.add(layers.Dropout(rate=0.2, name="dropout_out"))
     model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
     conv_base.trainable = False
     model.compile(
-        loss="categorical_crossentropy",
-        optimizer=optimizers.RMSprop(lr=2e-5),
-        metrics=["accuracy"],
-    )
+        loss=loss,
+        optimizer=optimizers.RMSprop(learning_rate=2e-5),
+        metrics=["accuracy"])
+    if verbose:
+        model.summary()
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape):
+def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
     """
+    :param loss: loss function to calculate loss between epochs
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
     creates our algorithm to learn from our dataset.
     :param input_shape: shape of input for model
     :param output_shape: shape of output
+    :param verbose: option to print details about model
     :return: the model object.
     """
     start = time.time()
-    model = models.Sequential()
-    model.add(layers.Conv2D(input_shape=input_shape, filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=64, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=128, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=128, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=256, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=256, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=256, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.Conv2D(filters=512, kernel_size=(3, 3), padding="same", activation="relu"))
-    model.add(layers.MaxPool2D(pool_size=(2, 2), strides=(2, 2)))
-
-    model.add(layers.Flatten())
-    model.add(layers.Dense(units=4096, activation="relu"))
-    model.add(layers.Dense(units=4096, activation="relu"))
-    model.add(layers.Dense(units=output_shape, activation="softmax"))
-
-    model.compile(optimizer='adam', loss=losses.categorical_crossentropy, metrics=['accuracy'])
+    model = vgg16.VGG16(weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=output_shape)
+    model.compile(optimizer='adam', loss=loss, metrics=['accuracy', 'binary_accuracy'])
+    if verbose:
+        model.summary()
     return model, time.time() - start
 
 
@@ -196,15 +186,182 @@ def pipeline(paths, y):
     :return:tuple of original X, y, augmented X, time to transform, time to augment, total time to pipeline
     """
     start = time.time()
-    X = np.array([[cv2.imread(p)[:, :, 0] for p in path] for path in paths])
+    X = np.array([cv2.imread(p)[:, :, 0] for p in paths])
     X, ttt = preprocess(X)
     X_aug, tta = data_augment(X)
     return X, y, X_aug, ttt, tta, time.time() - start
 
 
-def cross_validation(model, X, y, X_aug, n=10, verbose=False):
+def randomize(X, y, random_state=None):
+    """
+    randomize order of items in unison
+    :param X: array1
+    :param y: array2
+    :param random_state: random state for permutations
+    :return: random permutations of X, y pairs
+    """
+    if random_state is None:
+        shuffle = np.random.RandomState().permutation(y.shape[0])
+    else:
+        shuffle = np.random.RandomState(seed=random_state).permutation(y.shape[0])
+
+    return np.array([X[i] for i in shuffle]), np.array([y[i] for i in shuffle])
+
+
+def train_test_validate(model, X, y, split=[.8, .1, .1], random_state=None):
+    start = time.time()
+    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
+    X, y = randomize(X, y, random_state)
+
+    training = np.zeros(X.shape[0], dtype=bool)
+    validate = np.zeros(X.shape[0], dtype=bool)
+    testing = np.zeros(X.shape[0], dtype=bool)
+
+    training[:int(split[0]*X.shape[0])] = 1
+    validate[int(split[0]*X.shape[0]):int((split[0]+split[1])*X.shape[0])] = 1
+    testing[int((split[0]+split[1])*X.shape[0]):] = 1
+
+    train_score = model.fit(X[training], y[training], epochs=5)
+    test_score = model.evaluate(X[testing], y[testing])
+    # val_hist, val_score = model.evaluate(X[validate], y[validate])
+    # val_score = model.fit(X[validate], y[validate], epochs=50)
+    # test_hist, test_score = model.evaluate(X[testing], y[testing])
+    print(model.predict(X[0].reshape(1, 180, 180, 1)))
+
+    return train_score.history  # train_hist, val_hist, test_hist, val_score, test_score, time.time()-start
+
+
+def generate_data_binary(df, train=.8, test=.2, max_data=3500):
+    """
+    create data generators with train-test-validate split using max_data rows from DataFrame based on binary oa label
+    :param df: DataFrame with data to flow from
+    :param train: percentage (out of one) for training set
+    :param test: percentage (out of one) for testing set
+    :param max_data: max rows of data to use
+    :return: tuple of training data generator, testing data generator and time taken
+    """
+    start = time.time()
+
+    oa0 = df[df['oa'] == 0].head(max_data)
+    oa1 = df[df['oa'] == 1].head(max_data)
+
+    df_train = pd.concat([
+        oa0.iloc[:int(train * len(oa0))],
+        oa1.iloc[:int(train * len(oa1))]])
+
+    # df_val = pd.concat([
+    #     oa0.iloc[int((train+test) * len(oa0)):],
+    #     oa1.iloc[int((train+test) * len(oa0)):]])
+
+    df_test = pd.concat([
+        oa0.iloc[int(train * len(oa0)):int((train+test) * len(oa0))],
+        oa1.iloc[int(train * len(oa1)):int((train+test) * len(oa0))]])
+
+    generators = [ImageDataGenerator().flow_from_dataframe(
+        dataframe=x,
+        x_col="path",
+        y_col="oa",
+        class_mode="raw",
+        shuffle=True,
+        target_size=(180, 180),
+        preprocess=None,
+        color_mode='grayscale') for x in [df_train, df_test]]
+
+    return generators[0], generators[1], df_test['oa'], time.time() - start
+
+
+def generate_data_multiclass(df, train=.8, test=.2, max_data=100):
+    """
+    create data generators with train-test-validate split using max_data rows from DataFrame based on multiclass kl label
+    :param df: DataFrame with data to flow from
+    :param train: percentage (out of one) for training set
+    :param test: percentage (out of one) for testing set
+    :param max_data: max rows of data to use
+    :return: tuple of training data generator, testing data generator and time taken
+    """
+    start = time.time()
+
+    kl0 = df[df['kl'] == 0].head(max_data)
+    kl1 = df[df['kl'] == 1].head(max_data)
+    kl2 = df[df['kl'] == 2].head(max_data)
+    kl3 = df[df['kl'] == 3].head(max_data)
+    kl4 = df[df['kl'] == 4].head(max_data)
+
+    df_train = pd.concat([
+        kl0.iloc[:int(train * len(kl0))],
+        kl1.iloc[:int(train * len(kl1))],
+        kl1.iloc[:int(train * len(kl2))],
+        kl1.iloc[:int(train * len(kl3))],
+        kl1.iloc[:int(train * len(kl4))]])
+
+    # df_val = pd.concat([
+    #     kl0.iloc[int((train + test) * len(kl0)):],
+    #     kl1.iloc[int((train + test) * len(kl1)):],
+    #     kl2.iloc[int((train + test) * len(kl2)):],
+    #     kl3.iloc[int((train + test) * len(kl3)):],
+    #     kl4.iloc[int((train + test) * len(kl4)):]])
+
+    df_test = pd.concat([
+        kl0.iloc[int(train * len(kl0)):int((train + test) * len(kl0))],
+        kl1.iloc[int(train * len(kl1)):int((train + test) * len(kl1))],
+        kl2.iloc[int(train * len(kl2)):int((train + test) * len(kl2))],
+        kl3.iloc[int(train * len(kl3)):int((train + test) * len(kl3))],
+        kl4.iloc[int(train * len(kl4)):int((train + test) * len(kl4))]])
+
+    generators = [ImageDataGenerator().flow_from_dataframe(
+            dataframe=x,
+            x_col="path",
+            y_col="kl",
+            class_mode="raw",
+            shuffle=True,
+            preprocess_function=None,
+            target_size=(180, 180),
+            color_mode='grayscale') for x in [df_train, df_test]]
+
+    return generators[0], generators[1], df_test['kl'], time.time() - start
+
+
+def generate_data(df, train, test, classification_type):
+    """
+    Creates data generators for either binary or multiclass classification
+    :param df: DataFrame source of data
+    :param train: percentage (out of one) for training set
+    :param test: percentage (out of one) for testing set
+    :param classification_type: either 'binary' or 'multiclass'
+    :return: data generators and timings
+    """
+    if classification_type == 'binary':
+        return generate_data_binary(df, train, test)
+    return generate_data_multiclass(df, train, test)
+
+
+def train_test(model, gen_train, gen_test):
+    """
+    trains and tests model
+    :param model: model to work with
+    :param gen_train: training data generata
+    :param gen_val: validation data generator
+    :param gen_test: testing data generata
+    :return: tuple of history metrics, confusion matrix, and timings
+    """
+    start = time.time()
+
+    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
+
+    hist_train = model.fit(gen_train, epochs=50)
+    model.evaluate(gen_test)
+
+    gen_test.reset()
+
+    pred = model.predict(gen_test)
+
+    return hist_train.history, pred, time.time()-start
+
+
+def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None):
     """
     Performs n-fold cross validation on X, y pairs of data
+    :param random_state: random state for randomization
     :param verbose: Option to print details for validation timings
     :param X_aug: augmented input data in the same order as original data X
     :param model: model to cross validate
@@ -216,11 +373,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     start = time.time()
     model.save('fresh_model')
 
-    # randomly shuffle data (random_state=42)
-    shuffle = np.random.RandomState(seed=42).permutation(len(y))
-    X = np.array([X[i] for i in shuffle])
-    # X_aug = np.array([X_aug[i] for i in shuffle]) comment this out for now because we dont have any data augmentation implemented
-    y = np.array([y[i] for i in shuffle])
+    X, y = randomize(X, y, random_state=random_state)
 
     callback = callbacks.EarlyStopping(monitor='loss', patience=3)
     step = y.shape[0]//n
@@ -261,37 +414,57 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False):
     return round(av_accuracy, 2), time.time()-start
 
 
+def plot_results(history, metric):
+    plt.plot(range(len(history[metric])), history[metric])
+    plt.ylabel(metric)
+    plt.xlabel('epoch')
+    plt.show()
+
+
 def main():
-    n = 1
-    while n:
-        # Get chunk of data
-        paths, y, ttr = get_data(500)
-        print("Getting Data Paths Took {} Seconds!".format(round(ttr, 4)))
+    verbose = 1
 
-        # Data exclusion
-        start = time.time()
-        missing = [p for p in paths if len(p) != 12]
-        if len(missing) > 0:
-            print("< < < DATA IMPURITY FOUND: EXCLUDING & RETRIEVING... > > >")
-        n, tte = exclude_image(missing, verbose=True)
-        print("Excluded {} Files In {} Seconds!".format(n, round(tte, 4)))
+    # Get DataFrame
+    df, ttr = get_data()
+    print("Reading Excel File Took {} Seconds!".format(round(ttr, 4)))
 
-    ttc = time.time()-start
-    print("Total Data Cleaning Took {} Seconds!".format(round(ttc, 4)))
+    # Understand the data
+    if verbose:
+        print("< < < Data Analytics > > >")
+        print("There Are {} Total Data Points".format(len(df)))
+        print("There Are {} OA Joints And {} non-OA joints".format(len(df[df['oa'] == 1]), len(df[df['oa'] == 0])))
+        print("There Are {} MCP, {} PIP, And {} DIP Joints".format(len(df[df['joint'] == 'mcp']), len(df[df['joint'] == 'pip']), len(df[df['joint'] == 'dip'])))
+        print("There Are {} KL0, {} KL1, {} KL2, {} KL3, And {} KL4".format(len(df[df['kl'] == 0]), len(df[df['kl'] == 1]), len(df[df['kl'] == 2]), len(df[df['kl'] == 3]), len(df[df['kl'] == 4])))
 
-    # Send data to the pipeline
-    X, y, X_aug, ttt, tta, ttp = pipeline(paths, y)
-    print("Data Transformation Took {} Seconds!".format(round(ttt, 4)))
-    print("Data Augmentation Took {} Seconds!".format(round(tta, 4)))
-    print("Total Data Pipeline Took {} Seconds!".format(round(ttp, 4)))
+        plt.figure()
+
+        # subplot(r,c) provide the no. of rows and columns
+        f, axarr = plt.subplots(4, 1)
+
+        # use the created array to output your multiple images. In this case I have stacked 4 images vertically
+        axarr[0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1))
+        axarr[1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
+        axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
+        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
+        plt.show()
 
     # Create our model
-    model, ttc = inception_v3((180, 180, 1), 1, verbose=True)
+    model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-    # Train model on training data
-    accuracy, ttv = cross_validation(model, X.reshape(y.shape[0], 180, 180, 1), y.reshape(y.shape[0], 1), X_aug, verbose=True)
-    print("Model Scored {}% Accuracy, In {} Seconds!".format(accuracy, ttv))
+    # Get Data Generators
+    train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
+    print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
+
+    # Test model
+    hist_train, pred, ttt = train_test(model, train, test)
+    print(tf.math.confusion_matrix(truth, pred))
+    print("Training History: {}".format(hist_train))
+    print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+
+    # Plot Results
+    plot_results(hist_train, 'loss')
+    plot_results(hist_train, 'accuracy')
 
 
 if __name__ == "__main__":
