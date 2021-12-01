@@ -21,9 +21,6 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 
-global zoom_scale
-
-
 def exclude_image(paths, verbose=False):
     """
     method to exclude images from the dataset whose paths are passed
@@ -118,10 +115,7 @@ def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     return model, time.time() - start
 
 
-def preprocess_zoom(img, scale=None):
-    if scale is None:
-        global zoom_scale
-        scale = zoom_scale
+def preprocess_zoom(img, scale=3):
     # resize image
     h, w = img.shape
     img = cv2.resize(img, (h * scale, w * scale), interpolation=cv2.INTER_AREA)
@@ -426,8 +420,13 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None)
     return round(av_accuracy, 2), time.time()-start
 
 
-def plot_results(history, metric, label2='epoch', file_name=None):
-    plt.plot(range(len(history[metric])), history[metric])
+def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_name=None):
+    if X_val is None:
+        X_val = range(len(history[metric]))
+    if valid is None:
+        plt.plot(X_val, history[metric])
+    else:
+        plt.plot(X_val[valid], history[metric][valid])
     plt.ylabel(metric)
     plt.xlabel(label2)
     if file_name is None:
@@ -438,7 +437,6 @@ def plot_results(history, metric, label2='epoch', file_name=None):
 
 
 def main():
-    global zoom_scale
     verbose = 0
 
     # Get DataFrame
@@ -456,33 +454,37 @@ def main():
         plt.figure()
 
         # subplot(r,c) provide the no. of rows and columns
-        f, axarr = plt.subplots(10, 1)
+        f, axarr = plt.subplots(3, 1)
 
         # use the created array to output your multiple images. In this case I have stacked 4 images vertically
         axarr[0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1))
         axarr[1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
         axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 3))
-        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
-        axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
-        axarr[5].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 6))
-        axarr[6].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 7))
-        axarr[7].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
-        axarr[8].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 9))
-        axarr[9].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 10))
+        # axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
+        # axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
+        # axarr[5].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 6))
+        # axarr[6].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 7))
+        # axarr[7].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
+        # axarr[8].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 9))
+        # axarr[9].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 10))
         plt.show()
 
+    valid = np.zeros((10), dtype=bool)
     acc = np.zeros((10))
-
-    for k in range(1, 10):
-        zoom_scale = k
+    lrs = np.zeros((10))
+    for k in range(2, 9):
+        lr = 10**(k*-1)
+        lrs[k] = lr
+        valid[k] = 1
+        print("Using Learning Rate {}!".format(lr))
         # Create our model
         model, ttc = cnn_vgg16(
             (180, 180, 1),
             1,
             loss='binary_crossentropy',
-            verbose=True,
+            verbose=False,
             activation='sigmoid',
-            optimizer=optimizers.Adam(learning_rate=1e-5))
+            optimizer=optimizers.Adam(learning_rate=lr))
         print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
         # Get Data Generators
@@ -490,17 +492,17 @@ def main():
         print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
 
         # Test model
-        hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=50)
-        print(tf.math.confusion_matrix(truth, pred))
+        hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=25)
+        # print(tf.math.confusion_matrix(truth, pred))
         print("Model Training Took {} Seconds!".format(round(ttt, 4)))
 
         acc[k] = hist_test[1]
-        print("zoom {} had accuracy {}%!".format(k, acc[k]))
+        print("lr {} had accuracy {}%!".format(lr, acc[k]))
         # Plot Results
-        plot_results(hist_train, 'loss', file_name='Results/zoom=' + str(k) + "_VGG16_LOSS.png")
-        plot_results(hist_train, 'accuracy', file_name='Results/zoom=' + str(k) + "_VGG16_ACCURACY.png")
+        plot_results(hist_train, 'loss', file_name='Results/ep=25_zoom=3_lr=' + str(lr) + "_VGG16_LOSS.png")
+        plot_results(hist_train, 'accuracy', file_name='Results/ep=25_zoom=3_lr=' + str(lr) + "_VGG16_ACCURACY.png")
     print(acc)
-    plot_results({'accuracy': acc}, 'accuracy', label2='zoom scale', file_name='Results/zoom_scale_1-10_accuracy.png')
+    plot_results({'accuracy': acc}, 'accuracy', valid=valid, X_val=lrs, label2='learning rate', file_name='Results/ep=25_zoom=3_lr_1-7_VGG16_accuracy.png')
 
 
 if __name__ == "__main__":
