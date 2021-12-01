@@ -420,7 +420,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None)
     return round(av_accuracy, 2), time.time()-start
 
 
-def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_name=None):
+def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_name=None, xscale=None):
     if X_val is None:
         X_val = range(len(history[metric]))
     if valid is None:
@@ -429,6 +429,8 @@ def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_n
         plt.plot(X_val[valid], history[metric][valid])
     plt.ylabel(metric)
     plt.xlabel(label2)
+    if xscale is not None:
+        plt.xscale()
     if file_name is None:
         plt.show()
     else:
@@ -492,17 +494,17 @@ def main():
         print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
 
         # Test model
-        hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=25)
+        hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=30)
         # print(tf.math.confusion_matrix(truth, pred))
         print("Model Training Took {} Seconds!".format(round(ttt, 4)))
 
         acc[k] = hist_test[1]
         print("lr {} had accuracy {}%!".format(lr, acc[k]))
         # Plot Results
-        plot_results(hist_train, 'loss', file_name='Results/ep=25_zoom=3_lr=' + str(lr) + "_VGG16_LOSS.png")
-        plot_results(hist_train, 'accuracy', file_name='Results/ep=25_zoom=3_lr=' + str(lr) + "_VGG16_ACCURACY.png")
+        plot_results(hist_train, 'loss')
+        plot_results(hist_train, 'accuracy')
     print(acc)
-    plot_results({'accuracy': acc}, 'accuracy', valid=valid, X_val=lrs, label2='learning rate', file_name='Results/ep=25_zoom=3_lr_1-7_VGG16_accuracy.png')
+    plot_results({'accuracy': acc}, 'accuracy', valid=valid, X_val=lrs, label2='learning rate')
 
 
 if __name__ == "__main__":
