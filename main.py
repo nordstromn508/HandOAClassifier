@@ -7,7 +7,6 @@ main.py
 import glob
 import os
 import time
-
 import keras.applications.vgg16
 import keras_preprocessing.image
 from scipy.ndimage import zoom
@@ -20,6 +19,9 @@ from tensorflow.keras.applications import vgg16, inception_v3, efficientnet, den
 from tensorflow.keras import optimizers
 import tensorflow as tf
 import matplotlib.pyplot as plt
+
+
+global zoom_scale
 
 
 def exclude_image(paths, verbose=False):
@@ -116,7 +118,10 @@ def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     return model, time.time() - start
 
 
-def preprocess_zoom(img, scale=4):
+def preprocess_zoom(img, scale=None):
+    if scale is None:
+        global zoom_scale
+        scale = zoom_scale
     # resize image
     h, w = img.shape
     img = cv2.resize(img, (h * scale, w * scale), interpolation=cv2.INTER_AREA)
@@ -160,7 +165,7 @@ def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossen
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
+def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
     """
     :param loss: loss function to calculate loss between epochs
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
@@ -171,8 +176,14 @@ def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentrop
     :return: the model object.
     """
     start = time.time()
-    model = vgg16.VGG16(weights=None, input_tensor=None, input_shape=input_shape, pooling=None, classes=output_shape)
-    model.compile(optimizer='adam', loss=loss, metrics=['accuracy', 'binary_accuracy'])
+    model = vgg16.VGG16(
+        weights=None,
+        input_tensor=None,
+        input_shape=input_shape,
+        pooling=None,
+        classes=output_shape,
+        classifier_activation=activation)
+    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy', 'binary_accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -335,7 +346,7 @@ def generate_data(df, train, test, classification_type):
     return generate_data_multiclass(df, train, test)
 
 
-def train_test(model, gen_train, gen_test):
+def train_test(model, gen_train, gen_test, epochs=None):
     """
     trains and tests model
     :param model: model to work with
@@ -346,16 +357,17 @@ def train_test(model, gen_train, gen_test):
     """
     start = time.time()
 
-    callback = callbacks.EarlyStopping(monitor='loss', patience=3)
-
-    hist_train = model.fit(gen_train, epochs=50)
-    model.evaluate(gen_test)
+    if epochs is None:
+        hist_train = model.fit(gen_train, callbacks=[callbacks.EarlyStopping(monitor='loss', patience=3)])
+    else:
+        hist_train = model.fit(gen_train, epochs=epochs)
+    hist_test = model.evaluate(gen_test)
 
     gen_test.reset()
 
     pred = model.predict(gen_test)
 
-    return hist_train.history, pred, time.time()-start
+    return hist_train.history, hist_test, pred, time.time()-start
 
 
 def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None):
@@ -414,15 +426,20 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None)
     return round(av_accuracy, 2), time.time()-start
 
 
-def plot_results(history, metric):
+def plot_results(history, metric, label2='epoch', file_name=None):
     plt.plot(range(len(history[metric])), history[metric])
     plt.ylabel(metric)
-    plt.xlabel('epoch')
-    plt.show()
+    plt.xlabel(label2)
+    if file_name is None:
+        plt.show()
+    else:
+        plt.savefig(file_name)
+        plt.close()
 
 
 def main():
-    verbose = 1
+    global zoom_scale
+    verbose = 0
 
     # Get DataFrame
     df, ttr = get_data()
@@ -439,32 +456,51 @@ def main():
         plt.figure()
 
         # subplot(r,c) provide the no. of rows and columns
-        f, axarr = plt.subplots(4, 1)
+        f, axarr = plt.subplots(10, 1)
 
         # use the created array to output your multiple images. In this case I have stacked 4 images vertically
         axarr[0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1))
         axarr[1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
-        axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
-        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
+        axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 3))
+        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
+        axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
+        axarr[5].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 6))
+        axarr[6].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 7))
+        axarr[7].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
+        axarr[8].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 9))
+        axarr[9].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 10))
         plt.show()
 
-    # Create our model
-    model, ttc = cnn_vgg16((180, 180, 1), 1, verbose=True)
-    print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
+    acc = np.zeros((10))
 
-    # Get Data Generators
-    train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
-    print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
+    for k in range(1, 10):
+        zoom_scale = k
+        # Create our model
+        model, ttc = cnn_vgg16(
+            (180, 180, 1),
+            1,
+            loss='binary_crossentropy',
+            verbose=True,
+            activation='sigmoid',
+            optimizer=optimizers.Adam(learning_rate=1e-5))
+        print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-    # Test model
-    hist_train, pred, ttt = train_test(model, train, test)
-    print(tf.math.confusion_matrix(truth, pred))
-    print("Training History: {}".format(hist_train))
-    print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+        # Get Data Generators
+        train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
+        print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
 
-    # Plot Results
-    plot_results(hist_train, 'loss')
-    plot_results(hist_train, 'accuracy')
+        # Test model
+        hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=50)
+        print(tf.math.confusion_matrix(truth, pred))
+        print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+
+        acc[k] = hist_test[1]
+        print("zoom {} had accuracy {}%!".format(k, acc[k]))
+        # Plot Results
+        plot_results(hist_train, 'loss', file_name='Results/zoom=' + str(k) + "_VGG16_LOSS.png")
+        plot_results(hist_train, 'accuracy', file_name='Results/zoom=' + str(k) + "_VGG16_ACCURACY.png")
+    print(acc)
+    plot_results({'accuracy': acc}, 'accuracy', label2='zoom scale', file_name='Results/zoom_scale_1-10_accuracy.png')
 
 
 if __name__ == "__main__":
