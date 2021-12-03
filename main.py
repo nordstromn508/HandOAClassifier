@@ -68,7 +68,7 @@ def data_augment(data):
     return [], time.time() - start
 
 
-def inception_v3(input_shape, output_shape, verbose=False, loss=losses.binary_crossentropy):
+def inception_v3(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
     """
     :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/inceptionV3
@@ -80,19 +80,20 @@ def inception_v3(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     """
 
     start = time.time()
-    model = inception_v3.InceptionV3(include_top=True,
-                                                        weights=None,
-                                                        input_tensor=None,
-                                                        input_shape=input_shape,
-                                                        pooling=None,
-                                                        classes=output_shape)
-    model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
+    model = inception_v3.InceptionV3(
+        weights=None,
+        input_tensor=None,
+        input_shape=input_shape,
+        pooling=None,
+        classes=output_shape,
+        classifier_activation=activation)
+    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_crossentropy):
+def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
     """
     :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
@@ -103,13 +104,15 @@ def dense_net201(input_shape, output_shape, verbose=False, loss=losses.binary_cr
     :return: compiled and ready-to-train model
     """
     start = time.time()
-    model = densenet.DenseNet201(include_top=True,
-                                                    weights=None,
-                                                    input_tensor=None,
-                                                    input_shape=input_shape,
-                                                    pooling=None,
-                                                    classes=output_shape)
-    model.compile(optimizer='adam', loss=loss, metrics=['accuracy'])
+    model = densenet.DenseNet201(
+        weights=None,
+        input_tensor=None,
+        input_shape=input_shape,
+        pooling=None,
+        classes=output_shape,
+        classifier_activation=activation)
+
+    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -127,7 +130,7 @@ def preprocess_zoom(img, scale=3):
     return img[int(y):int(y + h), int(x):int(x + w)]
 
 
-def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy'):
+def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
     """
     :param loss: loss function to calculate loss between functions
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
@@ -138,21 +141,17 @@ def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossen
     :return: compiled model
     """
     start = time.time()
-    conv_base = efficientnet.EfficientNetB6(include_top=False,
-                                                        weights=None,
-                                                        input_tensor=None,
-                                                        input_shape=input_shape,
-                                                        pooling=None,
-                                                        classes=output_shape)
-    model = models.Sequential()
-    model.add(conv_base)
-    model.add(layers.GlobalMaxPooling2D(name="gap"))
-    model.add(layers.Dropout(rate=0.2, name="dropout_out"))
-    model.add(layers.Dense(output_shape, activation="softmax", name="fc_out"))
-    conv_base.trainable = False
+    model = efficientnet.EfficientNetB6(
+        weights=None,
+        input_tensor=None,
+        input_shape=input_shape,
+        pooling=None,
+        classes=output_shape,
+        classifier_activation=activation)
+
     model.compile(
         loss=loss,
-        optimizer=optimizers.RMSprop(learning_rate=2e-5),
+        optimizer=optimizer,
         metrics=["accuracy"])
     if verbose:
         model.summary()
@@ -269,7 +268,7 @@ def generate_data_binary(df, train=.8, test=.2, max_data=3500):
         class_mode="raw",
         shuffle=True,
         target_size=(180, 180),
-        preprocess=None,
+        preprocess=preprocess_zoom,
         color_mode='grayscale') for x in [df_train, df_test]]
 
     return generators[0], generators[1], df_test['oa'], time.time() - start
@@ -319,7 +318,7 @@ def generate_data_multiclass(df, train=.8, test=.2, max_data=100):
             y_col="kl",
             class_mode="raw",
             shuffle=True,
-            preprocess_function=None,
+            preprocess_function=preprocess_zoom,
             target_size=(180, 180),
             color_mode='grayscale') for x in [df_train, df_test]]
 
@@ -440,7 +439,7 @@ def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_n
 
 def main():
     verbose = 0
-
+    # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     # Get DataFrame
     df, ttr = get_data()
     print("Reading Excel File Took {} Seconds!".format(round(ttr, 4)))
@@ -456,14 +455,14 @@ def main():
         plt.figure()
 
         # subplot(r,c) provide the no. of rows and columns
-        f, axarr = plt.subplots(3, 1)
+        f, axarr = plt.subplots(5, 1)
 
         # use the created array to output your multiple images. In this case I have stacked 4 images vertically
         axarr[0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1))
         axarr[1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
         axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 3))
-        # axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
-        # axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
+        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
+        axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
         # axarr[5].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 6))
         # axarr[6].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 7))
         # axarr[7].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
@@ -471,40 +470,28 @@ def main():
         # axarr[9].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 10))
         plt.show()
 
-    valid = np.zeros((10), dtype=bool)
-    acc = np.zeros((10))
-    lrs = np.zeros((10))
-    for k in range(2, 9):
-        lr = 10**(k*-1)
-        lrs[k] = lr
-        valid[k] = 1
-        print("Using Learning Rate {}!".format(lr))
-        # Create our model
-        model, ttc = cnn_vgg16(
-            (180, 180, 1),
-            1,
-            loss='binary_crossentropy',
-            verbose=False,
-            activation='sigmoid',
-            optimizer=optimizers.Adam(learning_rate=lr))
-        print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
+    # Create our model
+    model, ttc = dense_net201(
+        (180, 180, 1),
+        1,
+        loss='binary_crossentropy',
+        verbose=False,
+        activation='sigmoid',
+        optimizer=optimizers.Adam(learning_rate=1e-5))
+    print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
-        # Get Data Generators
-        train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
-        print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
+    # Get Data Generators
+    train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
+    print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
 
-        # Test model
-        hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=30)
-        # print(tf.math.confusion_matrix(truth, pred))
-        print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+    # Test model
+    hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=30)
+    # print(tf.math.confusion_matrix(truth, pred))
+    print("Model Training Took {} Seconds!".format(round(ttt, 4)))
 
-        acc[k] = hist_test[1]
-        print("lr {} had accuracy {}%!".format(lr, acc[k]))
-        # Plot Results
-        plot_results(hist_train, 'loss')
-        plot_results(hist_train, 'accuracy')
-    print(acc)
-    plot_results({'accuracy': acc}, 'accuracy', valid=valid, X_val=lrs, label2='learning rate')
+    # Plot Results
+    plot_results(hist_train, 'loss')
+    plot_results(hist_train, 'accuracy')
 
 
 if __name__ == "__main__":
