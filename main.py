@@ -15,7 +15,7 @@ import pandas as pd
 import numpy as np
 import cv2
 from keras import models, layers, losses, callbacks
-from tensorflow.keras.applications import vgg16, inception_v3, efficientnet, densenet
+from tensorflow.keras.applications import vgg16, inception_v3, efficientnet, densenet, mobilenet
 from tensorflow.keras import optimizers
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -68,6 +68,31 @@ def data_augment(data):
     return [], time.time() - start
 
 
+def mobile_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax',
+                  optimizer='adam'):
+        """
+        :param loss: loss function to calculate loss between epochs
+        :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
+        creates our algorithm to learn from our dataset.
+        :param input_shape: shape of input for model
+        :param output_shape: shape of output
+        :param verbose: option to print details about model
+        :return: the model object.
+        """
+        start = time.time()
+        model = mobilenet.MobileNet(
+            weights=None,
+            input_tensor=None,
+            input_shape=input_shape,
+            pooling=None,
+            classes=output_shape,
+            classifier_activation=activation)
+        model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy', 'binary_accuracy'])
+        if verbose:
+            model.summary()
+        return model, time.time() - start
+
+
 def inception_v3(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
     """
     :param loss: loss function to calculate loss between epochs
@@ -104,13 +129,17 @@ def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossent
     :return: compiled and ready-to-train model
     """
     start = time.time()
-    model = densenet.DenseNet201(
+    model = models.sequential.Sequential()
+    model.add(densenet.DenseNet201(
+        include_top=False,
         weights=None,
         input_tensor=None,
         input_shape=input_shape,
         pooling=None,
-        classes=output_shape,
-        classifier_activation=activation)
+        classes=output_shape))
+
+    model.add(layers.Flatten())
+    model.add(layers.Dense(output_shape, activation=activation))
 
     model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
     if verbose:
@@ -141,13 +170,18 @@ def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossen
     :return: compiled model
     """
     start = time.time()
-    model = efficientnet.EfficientNetB6(
+
+    model = models.sequential.Sequential()
+    model.add(efficientnet.EfficientNetB6(
+        include_top=False,
         weights=None,
         input_tensor=None,
         input_shape=input_shape,
         pooling=None,
-        classes=output_shape,
-        classifier_activation=activation)
+        classes=output_shape))
+
+    model.add(layers.Flatten())
+    model.add(layers.Dense(output_shape, activation=activation))
 
     model.compile(
         loss=loss,
@@ -440,6 +474,7 @@ def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_n
 def main():
     verbose = 0
     # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
     # Get DataFrame
     df, ttr = get_data()
     print("Reading Excel File Took {} Seconds!".format(round(ttr, 4)))
@@ -463,15 +498,10 @@ def main():
         axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 3))
         axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
         axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
-        # axarr[5].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 6))
-        # axarr[6].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 7))
-        # axarr[7].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
-        # axarr[8].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 9))
-        # axarr[9].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 10))
         plt.show()
 
     # Create our model
-    model, ttc = dense_net201(
+    model, ttc = mobile_net(
         (180, 180, 1),
         1,
         loss='binary_crossentropy',
