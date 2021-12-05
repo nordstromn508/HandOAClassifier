@@ -9,12 +9,12 @@ import os
 import time
 import keras.applications.vgg16
 import keras_preprocessing.image
-from scipy.ndimage import zoom
+from sklearn.metrics import roc_curve, auc
 from keras_preprocessing.image import ImageDataGenerator
 import pandas as pd
 import numpy as np
 import cv2
-from keras import models, layers, losses, callbacks
+from keras import models, layers, losses, callbacks, metrics
 from tensorflow.keras.applications import vgg16, inception_v3, efficientnet, densenet, mobilenet
 from tensorflow.keras import optimizers
 import tensorflow as tf
@@ -69,7 +69,7 @@ def data_augment(data):
 
 
 def mobile_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax',
-                  optimizer='adam'):
+                  optimizer='adam', metrics=['accuracy']):
         """
         :param loss: loss function to calculate loss between epochs
         :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
@@ -87,13 +87,13 @@ def mobile_net(input_shape, output_shape, verbose=False, loss='binary_crossentro
             pooling=None,
             classes=output_shape,
             classifier_activation=activation)
-        model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy', 'binary_accuracy'])
+        model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
         if verbose:
             model.summary()
         return model, time.time() - start
 
 
-def inception_v3(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
+def inception_v3(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam', metrics=['accuracy']):
     """
     :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/inceptionV3
@@ -112,13 +112,13 @@ def inception_v3(input_shape, output_shape, verbose=False, loss='binary_crossent
         pooling=None,
         classes=output_shape,
         classifier_activation=activation)
-    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
+    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
+def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam', metrics=['accuracy']):
     """
     :param loss: loss function to calculate loss between epochs
     :@author: https://docs.w3cub.com/tensorflow~python/tf/keras/applications/densenet201
@@ -141,7 +141,7 @@ def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossent
     model.add(layers.Flatten())
     model.add(layers.Dense(output_shape, activation=activation))
 
-    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy'])
+    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -159,7 +159,7 @@ def preprocess_zoom(img, scale=3):
     return img[int(y):int(y + h), int(x):int(x + w)]
 
 
-def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
+def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam', metrics=['accuracy']):
     """
     :param loss: loss function to calculate loss between functions
     :@author: https://towardsdatascience.com/an-in-depth-efficientnet-tutorial-using-tensorflow-how-to-use-efficientnet-on-a-custom-dataset-1cab0997f65c
@@ -186,13 +186,13 @@ def efficient_net(input_shape, output_shape, verbose=False, loss='binary_crossen
     model.compile(
         loss=loss,
         optimizer=optimizer,
-        metrics=["accuracy"])
+        metrics=metrics)
     if verbose:
         model.summary()
     return model, time.time() - start
 
 
-def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam'):
+def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentropy', activation='softmax', optimizer='adam', metrics=['accuracy']):
     """
     :param loss: loss function to calculate loss between epochs
     :@author: https://towardsdatascience.com/step-by-step-vgg16-implementation-in-keras-for-beginners-a833c686ae6c
@@ -210,7 +210,7 @@ def cnn_vgg16(input_shape, output_shape, verbose=False, loss='binary_crossentrop
         pooling=None,
         classes=output_shape,
         classifier_activation=activation)
-    model.compile(optimizer=optimizer, loss=loss, metrics=['accuracy', 'binary_accuracy'])
+    model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
     if verbose:
         model.summary()
     return model, time.time() - start
@@ -471,6 +471,21 @@ def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_n
         plt.close()
 
 
+def plot_roc(hist, truth, pred):
+    fpr, tpr, _ = roc_curve(y_true=truth, y_score=pred)
+    # plt.plot(fpr, tpr, label="AUC")
+    # plt.xlabel("False Positive Rate")
+    # plt.ylabel("True Positive Rate")
+    # plt.ylim(0, 1)
+    # plt.xlim(0, 1)
+    # plt.legend()
+    # plt.show()
+
+    auc_keras = auc(fpr, tpr)
+    plt.plot(fpr, tpr, marker='.', label='Neural Network (auc = %0.3f)' % auc_keras)
+    plt.show()
+
+
 def main():
     verbose = 0
     # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -501,13 +516,14 @@ def main():
         plt.show()
 
     # Create our model
-    model, ttc = mobile_net(
+    model, ttc = dense_net201(
         (180, 180, 1),
         1,
         loss='binary_crossentropy',
         verbose=False,
         activation='sigmoid',
-        optimizer=optimizers.Adam(learning_rate=1e-5))
+        optimizer=optimizers.Adam(learning_rate=1e-5),
+        metrics=['accuracy', metrics.AUC(), metrics.TruePositives(), metrics.FalsePositives(), metrics.TrueNegatives(), metrics.FalseNegatives()])
     print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
 
     # Get Data Generators
@@ -515,13 +531,17 @@ def main():
     print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
 
     # Test model
-    hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=30)
+    hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=20)
     # print(tf.math.confusion_matrix(truth, pred))
     print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+
+    print(hist_train.keys())
+    print(hist_train)
 
     # Plot Results
     plot_results(hist_train, 'loss')
     plot_results(hist_train, 'accuracy')
+    plot_roc(hist_train, truth, pred)
 
 
 if __name__ == "__main__":
