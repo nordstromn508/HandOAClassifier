@@ -148,10 +148,10 @@ def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossent
 
 
 def preprocess_zoom(img, scale=3):
-    global zoom
-
-    if zoom is not None:
-        scale = zoom
+    # global zoom
+    #
+    # if zoom is not None:
+    #     scale = zoom
     # resize image
     h, w = img.shape
     img = cv2.resize(img, (h * scale, w * scale), interpolation=cv2.INTER_AREA)
@@ -544,7 +544,7 @@ def model_test_train_VGG(df):
 
 
 def main():
-    verbose = 0
+    verbose = 1
     # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
     # Get DataFrame
@@ -562,14 +562,42 @@ def main():
         plt.figure()
 
         # subplot(r,c) provide the no. of rows and columns
-        f, axarr = plt.subplots(5, 1)
+        f, axarr = plt.subplots(5, 2)
 
-        # use the created array to output your multiple images. In this case I have stacked 4 images vertically
-        axarr[0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1))
-        axarr[1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
-        axarr[2].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 3))
-        axarr[3].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
-        axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
+        # use the created array to output your multiple images.
+        axarr[0, 0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 1), )
+        axarr[1, 0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 2))
+        axarr[2, 0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 3))
+        axarr[3, 0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 4))
+        axarr[4, 0].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
+        axarr[0, 1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 6))
+        axarr[1, 1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 7))
+        axarr[2, 1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 8))
+        axarr[3, 1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 9))
+        axarr[4, 1].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 10))
+
+        axarr[0, 0].set_title("1x Scale")
+        axarr[1, 0].set_title("2x Scale")
+        axarr[2, 0].set_title("3x Scale")
+        axarr[3, 0].set_title("4x Scale")
+        axarr[4, 0].set_title("5x Scale")
+        axarr[0, 1].set_title("6x Scale")
+        axarr[1, 1].set_title("7x Scale")
+        axarr[2, 1].set_title("8x Scale")
+        axarr[3, 1].set_title("9x Scale")
+        axarr[4, 1].set_title("10x Scale")
+
+        axarr[0, 0].axis('off')
+        axarr[1, 0].axis('off')
+        axarr[2, 0].axis('off')
+        axarr[3, 0].axis('off')
+        axarr[4, 0].axis('off')
+        axarr[0, 1].axis('off')
+        axarr[1, 1].axis('off')
+        axarr[2, 1].axis('off')
+        axarr[3, 1].axis('off')
+        axarr[4, 1].axis('off')
+
         plt.show()
 
     global zoom
@@ -577,7 +605,7 @@ def main():
     global ep
 
     lr = 1e-2  # 1e-5
-    ep = 30
+    ep = 25
     zoom = 10
 
     values = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
