@@ -148,6 +148,10 @@ def dense_net201(input_shape, output_shape, verbose=False, loss='binary_crossent
 
 
 def preprocess_zoom(img, scale=3):
+    global zoom
+
+    if zoom is not None:
+        scale = zoom
     # resize image
     h, w = img.shape
     img = cv2.resize(img, (h * scale, w * scale), interpolation=cv2.INTER_AREA)
@@ -295,17 +299,27 @@ def generate_data_binary(df, train=.8, test=.2, max_data=3500):
         oa0.iloc[int(train * len(oa0)):int((train+test) * len(oa0))],
         oa1.iloc[int(train * len(oa1)):int((train+test) * len(oa0))]])
 
-    generators = [ImageDataGenerator().flow_from_dataframe(
-        dataframe=x,
+    gen_train = ImageDataGenerator().flow_from_dataframe(
+        dataframe=df_train,
         x_col="path",
         y_col="oa",
         class_mode="raw",
         shuffle=True,
         target_size=(180, 180),
         preprocess=preprocess_zoom,
-        color_mode='grayscale') for x in [df_train, df_test]]
+        color_mode='grayscale')
 
-    return generators[0], generators[1], df_test['oa'], time.time() - start
+    gen_test = ImageDataGenerator().flow_from_dataframe(
+        dataframe=df_test,
+        x_col="path",
+        y_col="oa",
+        class_mode="raw",
+        shuffle=False,
+        target_size=(180, 180),
+        preprocess=preprocess_zoom,
+        color_mode='grayscale')
+
+    return gen_train, gen_test, df_test['oa'], time.time() - start
 
 
 def generate_data_multiclass(df, train=.8, test=.2, max_data=100):
@@ -351,7 +365,7 @@ def generate_data_multiclass(df, train=.8, test=.2, max_data=100):
             x_col="path",
             y_col="kl",
             class_mode="raw",
-            shuffle=True,
+            shuffle=False,
             preprocess_function=preprocess_zoom,
             target_size=(180, 180),
             color_mode='grayscale') for x in [df_train, df_test]]
@@ -453,7 +467,7 @@ def cross_validation(model, X, y, X_aug, n=10, verbose=False, random_state=None)
     return round(av_accuracy, 2), time.time()-start
 
 
-def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_name=None, xscale=None):
+def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_name=None, x_scale=None):
     if X_val is None:
         X_val = range(len(history[metric]))
     if valid is None:
@@ -462,8 +476,8 @@ def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_n
         plt.plot(X_val[valid], history[metric][valid])
     plt.ylabel(metric)
     plt.xlabel(label2)
-    if xscale is not None:
-        plt.xscale()
+    if x_scale is not None:
+        plt.xscale(x_scale)
     if file_name is None:
         plt.show()
     else:
@@ -471,19 +485,62 @@ def plot_results(history, metric, label2='epoch', X_val=None, valid=None, file_n
         plt.close()
 
 
-def plot_roc(hist, truth, pred):
-    fpr, tpr, _ = roc_curve(y_true=truth, y_score=pred)
+def plot_roc(hist, truth, pred, file_name=None):
+    fpr, tpr, _ = roc_curve(y_true=truth, y_score=pred, pos_label=1)
     # plt.plot(fpr, tpr, label="AUC")
-    # plt.xlabel("False Positive Rate")
-    # plt.ylabel("True Positive Rate")
-    # plt.ylim(0, 1)
-    # plt.xlim(0, 1)
-    # plt.legend()
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.ylim(0, 1)
+    plt.xlim(0, 1)
     # plt.show()
 
     auc_keras = auc(fpr, tpr)
-    plt.plot(fpr, tpr, marker='.', label='Neural Network (auc = %0.3f)' % auc_keras)
-    plt.show()
+    plt.plot(fpr, tpr, label="AUC = {}".format(round(auc_keras, 4)))
+    plt.legend()
+    if file_name is None:
+        plt.show()
+    else:
+        plt.savefig(file_name)
+        plt.close()
+
+
+def model_test_train_VGG(df):
+    global zoom
+    global lr
+    global ep
+
+    print("zoom={}. learning rate={}. epochs={}".format(zoom, lr, ep))
+
+    # Create our model
+    model, ttc = mobile_net(
+        (180, 180, 1),
+        1,
+        loss='binary_crossentropy',
+        verbose=False,
+        activation='sigmoid',
+        optimizer=optimizers.Adam(learning_rate=lr),  # learning_rate=1e-5),
+        metrics=['accuracy', metrics.AUC()])
+    print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
+
+    # Get Data Generators
+    train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
+    print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
+
+    # Test model
+    hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=ep)
+    # print(tf.math.confusion_matrix(truth, pred))
+    print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+
+    print("Hist_train keys:", hist_train.keys())
+    print("Hist_train:", hist_train)
+    print("Hist_test:", hist_test)
+
+    # Plot Results
+    plot_results(hist_train, 'loss', file_name="results/MobileNet_Loss_ep={}_lr={}_zoom={}.png".format(ep, lr, zoom))
+    plot_results(hist_train, 'accuracy', file_name="results/MobileNet_Accuracy_ep={}_lr={}_zoom={}.png".format(ep, lr, zoom))
+    plot_roc(hist_train, truth, pred, file_name="results/MobileNet_AUC_ep={}_lr={}_zoom={}.png".format(ep, lr, zoom))
+
+    return hist_test
 
 
 def main():
@@ -515,33 +572,26 @@ def main():
         axarr[4].imshow(preprocess_zoom(cv2.imread(df['path'][0])[:, :, 0], 5))
         plt.show()
 
-    # Create our model
-    model, ttc = dense_net201(
-        (180, 180, 1),
-        1,
-        loss='binary_crossentropy',
-        verbose=False,
-        activation='sigmoid',
-        optimizer=optimizers.Adam(learning_rate=1e-5),
-        metrics=['accuracy', metrics.AUC(), metrics.TruePositives(), metrics.FalsePositives(), metrics.TrueNegatives(), metrics.FalseNegatives()])
-    print("Creating Model Took {} Seconds!".format(round(ttc, 4)))
+    global zoom
+    global lr
+    global ep
 
-    # Get Data Generators
-    train, test, truth, ttg = generate_data(df, .8, .2, 'binary')
-    print("Data Generator Creation Took {} Seconds!".format(round(ttg, 4)))
+    lr = 1e-2  # 1e-5
+    ep = 30
+    zoom = 10
 
-    # Test model
-    hist_train, hist_test, pred, ttt = train_test(model, train, test, epochs=20)
-    # print(tf.math.confusion_matrix(truth, pred))
-    print("Model Training Took {} Seconds!".format(round(ttt, 4)))
+    values = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    acc = {'accuracy': np.zeros(len(values))}
+    auc = {'AUC': np.zeros(len(values))}
 
-    print(hist_train.keys())
-    print(hist_train)
+    for i in range(len(values)):
+        ep = values[i]
+        hist = model_test_train_VGG(df)
+        acc[i] = hist[1]
+        auc[i] = hist[2]
 
-    # Plot Results
-    plot_results(hist_train, 'loss')
-    plot_results(hist_train, 'accuracy')
-    plot_roc(hist_train, truth, pred)
+    plot_results(acc, 'accuracy', file_name="results/MobileNet_Accuracy_ep_lr={}_Zoom={}.png".format(lr, zoom), label2='Learning Rate', X_val=values)
+    plot_results(auc, 'AUC', file_name="results/MobileNet_AUC_ep_lr={}_Zoom={}.png".format(lr, zoom), label2='Learning Rate', X_val=values)
 
 
 if __name__ == "__main__":
