@@ -1,5 +1,5 @@
 """
-@author: Nicholas Nordstrom
+@author: Nicholas Nordstrom, Thurein Myint
 main.py
     Main thread of execution
 
